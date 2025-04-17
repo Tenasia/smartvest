@@ -1,0 +1,30 @@
+{
+  "project_info": {
+    "project_number": "953150687573",
+    "firebase_url": "https://smart-vest-43a34-default-rtdb.asia-southeast1.firebasedatabase.app",
+    "project_id": "smart-vest-43a34",
+    "storage_bucket": "smart-vest-43a34.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:953150687573:android:feac3cf5b8e96ea3a487dc",
+        "android_client_info": {
+          "package_name": "com.smartvest.smartvest"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAZUYuWj6fF53rjrzu0RxnNYHyqywh41dA"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
