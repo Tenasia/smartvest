@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:google_sign_in/google_sign_in.dart';
 import 'package:smartvest/core/services/auth_service.dart';
 import 'package:smartvest/features/auth/login.dart'; // Import your AuthService
 import 'package:font_awesome_flutter/font_awesome_flutter.dart'; // For the Google icon
@@ -36,7 +37,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
           if (userCredential != null) {
             print('Registration successful! User ID: ${userCredential.user?.uid}');
-            Navigator.of(context).pushReplacement(MaterialPageRoute(builder: (context) => const HomeScreen()));
+            Navigator.pushReplacementNamed(context, '/dashboard'); // Use the named route
           }
         } else {
           setState(() {
@@ -74,7 +75,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
       final UserCredential? userCredential = await _authService.signUpWithGoogle();
       if (userCredential != null) {
         print('Google sign-up successful! User ID: ${userCredential.user?.uid}');
-        Navigator.of(context).pushReplacement(MaterialPageRoute(builder: (context) => const HomeScreen()));
+        Navigator.pushReplacementNamed(context, '/dashboard'); // Use the named route
       }
     } catch (e) {
       print('Google sign-up error: $e');

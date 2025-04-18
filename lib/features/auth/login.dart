@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:smartvest/core/services/auth_service.dart'; // Import your AuthService
-//import 'package:your_app_name/config/app_routes.dart'; // Import your routes - Corrected import
+import 'package:smartvest/config/app_routes.dart'; // Import your routes - Corrected import
 import 'package:flutter/widgets.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -37,7 +37,7 @@ class _LoginScreenState extends State<LoginScreen> {
           // Login successful, navigate to home or other screen
           print('Login successful! User ID: ${userCredential.user?.uid}');
           //Navigator.pushReplacementNamed(context, AppRoutes.home); // Use your route name
-          Navigator.of(context).pushReplacement(MaterialPageRoute(builder: (context) => const HomeScreen())); //Use a const HomeScreen()
+          Navigator.pushReplacementNamed(context, '/dashboard'); // Use the named route
         }
       } catch (e) {
         // Handle login errors
@@ -175,16 +175,4 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 }
 
-//Dummy Home Screen, replace with your actual home screen.
-class HomeScreen extends StatelessWidget {
-  const HomeScreen({super.key});
 
-  @override
-  Widget build(BuildContext context) {
-    return const Scaffold(
-      body: Center(
-        child: Text("Home Screen"),
-      ),
-    );
-  }
-}
