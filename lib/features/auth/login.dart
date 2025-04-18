@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:smartvest/core/services/auth_service.dart'; // Import your AuthService
-import 'package:smartvest/config/app_routes.dart'; // Import your routes - Corrected import
 import 'package:flutter/widgets.dart';
 
 class LoginScreen extends StatefulWidget {

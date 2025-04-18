@@ -1,8 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:google_sign_in/google_sign_in.dart';
 import 'package:smartvest/core/services/auth_service.dart';
-import 'package:smartvest/features/auth/login.dart'; // Import your AuthService
 import 'package:font_awesome_flutter/font_awesome_flutter.dart'; // For the Google icon
 
 class RegisterScreen extends StatefulWidget {
