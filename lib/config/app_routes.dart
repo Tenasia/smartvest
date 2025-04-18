@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:smartvest/features/auth/login.dart'; // Import your LoginScreen
+import 'package:smartvest/features/auth/login.dart';
+import 'package:smartvest/features/auth/register.dart';
 // Import other screens as needed, e.g.:
 // import 'package:smartvest/features/auth/register.dart';
 // import 'package:smartvest/features/auth/forgot_password.dart';
@@ -13,6 +14,7 @@ class AppRoutes {
 
   static Map<String, WidgetBuilder> routes = {
     login: (context) => const LoginScreen(), // Use the imported LoginScreen
+    register: (context) => const RegisterScreen(),
     // Add other routes here, e.g.:
     // register: (context) => const RegisterScreen(),
     // forgotPassword: (context) => const ForgotPasswordScreen(),

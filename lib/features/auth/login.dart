@@ -77,23 +77,6 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
-  //show error dialog
-  void _showErrorDialog(BuildContext context, String message) {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Error'),
-        content: Text(message),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('OK'),
-          ),
-        ],
-      ),
-    );
-  }
-
   @override
   void dispose() {
     _emailController.dispose();
@@ -182,7 +165,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 onPressed: () {
                   Navigator.pushNamed(context, '/forgot_password'); // Use your route name
                 },
-                child: const Text('Forgot Password?!'),
+                child: const Text('Forgot Password?'),
               ),
             ],
           ),

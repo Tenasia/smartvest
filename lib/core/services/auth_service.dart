@@ -1,7 +1,9 @@
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:google_sign_in/google_sign_in.dart';
 
 class AuthService {
   final FirebaseAuth _auth = FirebaseAuth.instance;
+  final GoogleSignIn _googleSignIn = GoogleSignIn();
 
   // Sign in with email and password
   Future<UserCredential?> signInWithEmailAndPassword(
@@ -20,7 +22,6 @@ class AuthService {
       print("General Error: $e");
       throw Exception("An unexpected error occurred: $e");
     }
-    return null;
   }
 
   // Sign up with email and password
@@ -38,7 +39,25 @@ class AuthService {
       print("General Error: $e");
       throw Exception("Failed to sign up: $e");
     }
-    return null;
+  }
+
+  // Google Sign-Up
+  Future<UserCredential?> signUpWithGoogle() async {
+    try {
+      final GoogleSignInAccount? googleUser = await _googleSignIn.signIn();
+      if (googleUser == null) {
+        return null; // User cancelled the sign-in
+      }
+      final GoogleSignInAuthentication googleAuth = await googleUser.authentication;
+      final OAuthCredential credential = GoogleAuthProvider.credential(
+        accessToken: googleAuth.accessToken,
+        idToken: googleAuth.idToken,
+      );
+      return await _auth.signInWithCredential(credential);
+    } catch (e) {
+      print("Error signing up with Google: $e");
+      throw Exception("Failed to sign up with Google: $e");
+    }
   }
 
   //  Forgot Password
