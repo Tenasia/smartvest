@@ -1,1 +1,25 @@
-{"flutter":{"platforms":{"android":{"default":{"projectId":"smart-vest-43a34","appId":"1:953150687573:android:feac3cf5b8e96ea3a487dc","fileOutput":"android/app/google-services.json"}},"dart":{"lib/firebase_options.dart":{"projectId":"smart-vest-43a34","configurations":{"android":"1:953150687573:android:feac3cf5b8e96ea3a487dc"}}}}}}
+{
+  "flutter": {
+    "platforms": {
+      "android": {
+        "default": {
+          "projectId": "smart-vest-43a34",
+          "appId": "1:953150687573:android:feac3cf5b8e96ea3a487dc",
+          "fileOutput": "android/app/google-services.json"
+        }
+      },
+      "dart": {
+        "lib/firebase_options.dart": {
+          "projectId": "smart-vest-43a34",
+          "configurations": {
+            "android": "1:953150687573:android:feac3cf5b8e96ea3a487dc"
+          }
+        }
+      }
+    }
+  },
+  "firestore": {
+    "rules": "firestore.rules",
+    "indexes": "firestore.indexes.json"
+  }
+}

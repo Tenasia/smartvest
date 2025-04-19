@@ -1,9 +1,11 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_sign_in/google_sign_in.dart';
+import 'package:cloud_firestore/cloud_firestore.dart'; // Import Firestore
 
 class AuthService {
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final GoogleSignIn _googleSignIn = GoogleSignIn();
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance; // Add Firestore instance
 
   // Sign in with email and password
   Future<UserCredential?> signInWithEmailAndPassword(
@@ -31,6 +33,21 @@ class AuthService {
         email: email,
         password: password,
       );
+      User? user = credential.user; // Get the User object
+
+      if (user != null) {
+        // Add user data to Firestore
+        await _firestore.collection('users').doc(user.uid).set({
+          'uid': user.uid,
+          'welcomeNameCompleted': false,
+          'welcomeGenderCompleted': false,
+          'activityLevelCompleted': false,
+          'heightWeightCompleted': false,
+          'profileCompleted': false,
+          // Add any other initial user data here
+        });
+        print("User document created in Firestore for UID: ${user.uid}");
+      }
       return credential;
     } on FirebaseAuthException catch (e) {
       print("Firebase Auth Error: ${e.code} - ${e.message}");
@@ -53,7 +70,23 @@ class AuthService {
         accessToken: googleAuth.accessToken,
         idToken: googleAuth.idToken,
       );
-      return await _auth.signInWithCredential(credential);
+      final userCredential = await _auth.signInWithCredential(credential);
+      User? user = userCredential.user;
+
+      if (user != null) {
+        // Add user data to Firestore
+        await _firestore.collection('users').doc(user.uid).set({
+          'uid': user.uid,
+          'welcomeNameCompleted': false,
+          'welcomeGenderCompleted': false,
+          'activityLevelCompleted': false,
+          'heightWeightCompleted': false,
+          'profileCompleted': false,
+          // Add any other initial user data here
+        });
+        print("User document created in Firestore for UID: ${user.uid}");
+      }
+      return userCredential;
     } catch (e) {
       print("Error signing up with Google: $e");
       throw Exception("Failed to sign up with Google: $e");
