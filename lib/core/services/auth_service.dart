@@ -66,10 +66,17 @@ class AuthService {
       await _auth.sendPasswordResetEmail(email: email);
     } on FirebaseAuthException catch (e) {
       print("Firebase Auth Error: ${e.code} - ${e.message}");
-      throw e;
+      switch (e.code) {
+        case 'auth/invalid-email':
+          throw 'The email address is invalid.';
+        case 'auth/user-not-found':
+          throw 'There is no user record corresponding to this email.';
+        default:
+          throw 'Failed to send password reset email. Please try again.';
+      }
     } catch (e) {
       print("Error sending password reset email: $e");
-      throw Exception("Failed to send password reset email: $e");
+      throw 'An unexpected error occurred. Please try again.';
     }
   }
 
