@@ -1,27 +1,62 @@
 import 'package:flutter/material.dart';
+
+// Authentication Page
 import 'package:smartvest/features/auth/login.dart';
 import 'package:smartvest/features/auth/register.dart';
+import 'package:smartvest/features/auth/forgot_password.dart';
+
+// Welcome Page
+import 'package:smartvest/features/welcome/welcome.dart';
+import 'package:smartvest/features/welcome/name.dart'; // Assuming your name screen file is named welcome_name.dart
+import 'package:smartvest/features/welcome/gender.dart'; // Assuming your gender screen file is named welcome_gender.dart
+import 'package:smartvest/features/welcome/activity_level.dart'; // Import the ActivityLevelScreen
+import 'package:smartvest/features/welcome/height_and_weight.dart'; // Import HeightAndWeightScreen
+
+// Device Page
+import 'package:smartvest/features/device/search_and_connect.dart';
+
+// Main Page
 import 'package:smartvest/features/dashboard.dart';
-import 'package:smartvest/features/auth/forgot_password.dart'; // Import the ForgotPasswordScreen
-// Import other screens as needed, e.g.:
-// import 'package:smartvest/features/auth/register.dart';
-// import 'package:smartvest/features/auth/forgot_password.dart';
-// import 'package:smartvest/features/home/home_screen.dart'; // Import your home screen
 
 class AppRoutes {
+
+  // Authentication Page
   static const String login = '/login';
   static const String register = '/register';
   static const String forgotPassword = '/forgot_password';
-  static const String dashboard = '/dashboard'; // Add this line
+
+  // Welcome Page
+  static const String welcome = '/welcome';
+  static const String welcomeName = '/welcomeName';
+  static const String welcomeGender = '/welcomeGender';
+  static const String activityLevel = '/activityLevel';
+  static const String heightAndWeight = '/heightAndWeight';
+
+  // Device Page
+  static const String searchAndConnect = '/searchAndConnect';
+
+  // Main Page
+  static const String dashboard = '/dashboard';
+
 
   static Map<String, WidgetBuilder> routes = {
-    login: (context) => const LoginScreen(), // Use the imported LoginScreen
+
+    // Authentication Page
+    login: (context) => const LoginScreen(),
     register: (context) => const RegisterScreen(),
-    forgotPassword: (context) => const ForgotPasswordScreen(), // Add this line
+    forgotPassword: (context) => const ForgotPasswordScreen(),
+
+    // Welcome Page
+    welcome: (context) => const WelcomeScreen(),
+    welcomeName: (context) => const WelcomeNameScreen(),
+    welcomeGender: (context) => const WelcomeGenderScreen(),
+    activityLevel: (context) => const ActivityLevelScreen(),
+    heightAndWeight: (context) => const HeightAndWeightScreen(),
+
+    // Device Page
+    searchAndConnect: (context) => const SearchingDeviceScreen(),
+
+    // Main Page
     dashboard: (context) => const DashboardScreen(),
-    // Add other routes here, e.g.:
-    // register: (context) => const RegisterScreen(),
-    // forgotPassword: (context) => const ForgotPasswordScreen(),
-    // home: (context) => const HomeScreen(), // Add this line and the import
   };
 }
