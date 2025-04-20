@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 class WelcomeNameScreen extends StatefulWidget {
   const WelcomeNameScreen({super.key});
@@ -24,8 +26,8 @@ class _WelcomeNameScreenState extends State<WelcomeNameScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Tell Us Your Name'), // You can customize the title
-        automaticallyImplyLeading: false, // To prevent going back to the previous welcome screen
+        title: const Text('Tell Us Your Name'),
+        automaticallyImplyLeading: false,
       ),
       body: Padding(
         padding: const EdgeInsets.all(20.0),
@@ -63,16 +65,45 @@ class _WelcomeNameScreenState extends State<WelcomeNameScreen> {
                 border: OutlineInputBorder(),
               ),
             ),
-            const Spacer(), // Pushes the button to the bottom
+            const Spacer(),
             SizedBox(
               width: double.infinity,
               child: ElevatedButton(
-                onPressed: () {
-                  // You can access the entered names using:
-                  // _firstNameController.text
-                  // _middleNameController.text
-                  // _lastNameController.text
-                  Navigator.pushReplacementNamed(context, '/welcomeGender'); // Assuming your gender page route is '/welcome2'
+                onPressed: () async { // Make the onPressed async
+                  final firstName = _firstNameController.text.trim();
+                  final lastName = _lastNameController.text.trim();
+                  final middleName = _middleNameController.text.trim();
+
+                  if (firstName.isNotEmpty && lastName.isNotEmpty) {
+                    // Get the user
+                    User? user = FirebaseAuth.instance.currentUser;
+                    if (user != null) {
+                      //update firestore
+                      try {
+                        await FirebaseFirestore.instance
+                            .collection('users')
+                            .doc(user.uid)
+                            .update({
+                          'welcomeNameCompleted': true,
+                          'firstName': firstName,
+                          'middleName': middleName,
+                          'lastName': lastName,
+                        });
+                        print("Firestore updated for welcomeNameCompleted");
+                      } catch (e) {
+                        print("Error updating Firestore: $e");
+                      }
+                    }
+                    Navigator.pushReplacementNamed(context, '/welcomeGender');
+                  } else {
+                    // Show error message
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('Please enter your first and last name.'),
+                        duration: Duration(seconds: 3),
+                      ),
+                    );
+                  }
                 },
                 child: const Padding(
                   padding: EdgeInsets.symmetric(vertical: 15.0),
@@ -89,3 +120,4 @@ class _WelcomeNameScreenState extends State<WelcomeNameScreen> {
     );
   }
 }
+

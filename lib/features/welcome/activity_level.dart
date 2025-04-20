@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 class ActivityLevelScreen extends StatefulWidget {
   const ActivityLevelScreen({super.key});
@@ -93,11 +95,27 @@ class _ActivityLevelScreenState extends State<ActivityLevelScreen> {
             SizedBox(
               width: double.infinity,
               child: ElevatedButton(
-                onPressed: _selectedActivityLevel != null ? () {
+                onPressed: _selectedActivityLevel != null
+                    ? () async {
                   // Access the selected activity level: _selectedActivityLevel
                   print('Selected Activity Level: $_selectedActivityLevel');
-                  Navigator.pushReplacementNamed(context, '/heightAndWeight'); // Assuming the next page is '/welcome4'
-                } : null,
+                  User? user = FirebaseAuth.instance.currentUser;
+                  if (user != null) {
+                    try {
+                      await FirebaseFirestore.instance
+                          .collection('users')
+                          .doc(user.uid)
+                          .update({
+                        'activityLevelCompleted': true,
+                        'activityLevel': _selectedActivityLevel, // Store activity level
+                      });
+                    } catch (e) {
+                      print("Error updating firestore $e");
+                    }
+                  }
+                  Navigator.pushReplacementNamed(context, '/heightAndWeight');
+                }
+                    : null,
                 child: const Padding(
                   padding: EdgeInsets.symmetric(vertical: 15.0),
                   child: Text(
@@ -113,3 +131,4 @@ class _ActivityLevelScreenState extends State<ActivityLevelScreen> {
     );
   }
 }
+

@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/cupertino.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 class HeightAndWeightScreen extends StatefulWidget {
   const HeightAndWeightScreen({super.key});
@@ -48,18 +50,6 @@ class _HeightAndWeightScreenState extends State<HeightAndWeightScreen> {
     );
     // Force a rebuild to use the initialized controllers
     setState(() {});
-  }
-
-  void _handleHeightChanged(int value) {
-    setState(() {
-      _selectedHeightCm = value;
-    });
-  }
-
-  void _handleWeightChanged(double value) {
-    setState(() {
-      _selectedWeightKg = value;
-    });
   }
 
   @override
@@ -236,11 +226,29 @@ class _HeightAndWeightScreenState extends State<HeightAndWeightScreen> {
             SizedBox(
               width: double.infinity,
               child: ElevatedButton(
-                onPressed: () {
+                onPressed: () async { // Make onPressed async
                   print('Selected Height (cm): $_selectedHeightCm');
                   print('Selected Weight (kg): $_selectedWeightKg');
                   print('Selected Height (inch): $_selectedHeightInch');
                   print('Selected Weight (lbs): ${_selectedWeightLbs.toStringAsFixed(1)}');
+
+                  User? user = FirebaseAuth.instance.currentUser;
+                  if (user != null) {
+                    try {
+                      await FirebaseFirestore.instance
+                          .collection('users')
+                          .doc(user.uid)
+                          .update({
+                        'heightWeightCompleted': true,
+                        'profileCompleted': true, //set profile completed
+                        'heightCm': _selectedHeightCm, // Store height
+                        'weightKg': _selectedWeightKg, // Store weight
+                      });
+                      print("Firestore updated for heightWeightCompleted and profileCompleted");
+                    } catch (e) {
+                      print("Error updating Firestore: $e");
+                    }
+                  }
                   Navigator.pushReplacementNamed(context, '/searchAndConnect');
                 },
                 child: const Padding(
@@ -258,3 +266,4 @@ class _HeightAndWeightScreenState extends State<HeightAndWeightScreen> {
     );
   }
 }
+

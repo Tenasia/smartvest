@@ -30,6 +30,7 @@ class _LoginScreenState extends State<LoginScreen> {
         UserCredential? userCredential = await _authService.signInWithEmailAndPassword(
           _emailController.text.trim(),
           _passwordController.text.trim(),
+          context,
         );
 
         if (userCredential != null) {

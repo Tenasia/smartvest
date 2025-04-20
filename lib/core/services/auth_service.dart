@@ -1,6 +1,7 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:cloud_firestore/cloud_firestore.dart'; // Import Firestore
+import 'package:flutter/material.dart'; // Import for BuildContext
 
 class AuthService {
   final FirebaseAuth _auth = FirebaseAuth.instance;
@@ -9,12 +10,28 @@ class AuthService {
 
   // Sign in with email and password
   Future<UserCredential?> signInWithEmailAndPassword(
-      String email, String password) async {
+      String email, String password, BuildContext context) async { // Add BuildContext
     try {
       final credential = await _auth.signInWithEmailAndPassword(
         email: email,
         password: password,
       );
+      User? user = credential.user;
+
+      if (user != null) {
+        // Get user data from Firestore
+        DocumentSnapshot userDoc = await _firestore.collection('users').doc(user.uid).get();
+        if (userDoc.exists) {
+          Map<String, dynamic> userData = userDoc.data() as Map<String, dynamic>;
+          bool profileCompleted = userData['profileCompleted'] ?? false; // Default to false
+
+          if (!profileCompleted) {
+            // Navigate to welcome flow
+            Navigator.pushReplacementNamed(context, '/welcome');
+            return null; // Important: Return null to prevent further navigation in the login function
+          }
+        }
+      }
       return credential; // Return the UserCredential
     } on FirebaseAuthException catch (e) {
       // Handle errors appropriately (see improved error handling below)
@@ -27,7 +44,7 @@ class AuthService {
   }
 
   // Sign up with email and password
-  Future<UserCredential?> signUpWithEmailAndPassword(String email, String password) async {
+  Future<UserCredential?> signUpWithEmailAndPassword(String email, String password, {String? firstName, String? lastName, String? middleName, String? gender, DateTime? birthday, String? activityLevel, int? heightCm, double? weightKg}) async {
     try {
       final credential = await _auth.createUserWithEmailAndPassword(
         email: email,
@@ -44,6 +61,14 @@ class AuthService {
           'activityLevelCompleted': false,
           'heightWeightCompleted': false,
           'profileCompleted': false,
+          'firstName': firstName ?? '',       // Store first name
+          'middleName': middleName ?? '',     // Store middle name
+          'lastName': lastName ?? '',         // Store last name
+          'gender': gender ?? '', // Store gender
+          'birthday': birthday, // Store birthday
+          'activityLevel': activityLevel ?? '',
+          'heightCm': heightCm,
+          'weightKg': weightKg,
           // Add any other initial user data here
         });
         print("User document created in Firestore for UID: ${user.uid}");
@@ -59,7 +84,7 @@ class AuthService {
   }
 
   // Google Sign-Up
-  Future<UserCredential?> signUpWithGoogle() async {
+  Future<UserCredential?> signUpWithGoogle(BuildContext context) async { //Added context
     try {
       final GoogleSignInAccount? googleUser = await _googleSignIn.signIn();
       if (googleUser == null) {
@@ -82,6 +107,14 @@ class AuthService {
           'activityLevelCompleted': false,
           'heightWeightCompleted': false,
           'profileCompleted': false,
+          'firstName': '',
+          'middleName': '',
+          'lastName': '',
+          'gender': '',
+          'birthday': null,
+          'activityLevel': '',
+          'heightCm': null,
+          'weightKg': null,
           // Add any other initial user data here
         });
         print("User document created in Firestore for UID: ${user.uid}");
@@ -123,3 +156,4 @@ class AuthService {
     await _auth.signOut();
   }
 }
+

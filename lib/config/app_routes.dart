@@ -8,7 +8,7 @@ import 'package:smartvest/features/auth/forgot_password.dart';
 // Welcome Page
 import 'package:smartvest/features/welcome/welcome.dart';
 import 'package:smartvest/features/welcome/name.dart'; // Assuming your name screen file is named welcome_name.dart
-import 'package:smartvest/features/welcome/gender.dart'; // Assuming your gender screen file is named welcome_gender.dart
+import 'package:smartvest/features/welcome/gender_and_birthday.dart'; // Assuming your gender screen file is named welcome_gender.dart
 import 'package:smartvest/features/welcome/activity_level.dart'; // Import the ActivityLevelScreen
 import 'package:smartvest/features/welcome/height_and_weight.dart'; // Import HeightAndWeightScreen
 
@@ -49,7 +49,7 @@ class AppRoutes {
     // Welcome Page
     welcome: (context) => const WelcomeScreen(),
     welcomeName: (context) => const WelcomeNameScreen(),
-    welcomeGender: (context) => const WelcomeGenderScreen(),
+    welcomeGender: (context) => const GenderAndBirthdayScreen(),
     activityLevel: (context) => const ActivityLevelScreen(),
     heightAndWeight: (context) => const HeightAndWeightScreen(),
 

@@ -1,14 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/cupertino.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
-class WelcomeGenderScreen extends StatefulWidget {
-  const WelcomeGenderScreen({super.key});
+class GenderAndBirthdayScreen extends StatefulWidget {
+  const GenderAndBirthdayScreen({super.key});
 
   @override
-  State<WelcomeGenderScreen> createState() => _WelcomeGenderScreenState();
+  State<GenderAndBirthdayScreen> createState() => _GenderAndBirthdayScreenState();
 }
 
-class _WelcomeGenderScreenState extends State<WelcomeGenderScreen> {
+class _GenderAndBirthdayScreenState extends State<GenderAndBirthdayScreen> {
   String? _selectedGender;
   DateTime _selectedDate = DateTime.now();
 
@@ -44,7 +46,9 @@ class _WelcomeGenderScreenState extends State<WelcomeGenderScreen> {
                   child: Container(
                     padding: const EdgeInsets.all(15.0),
                     decoration: BoxDecoration(
-                      color: _selectedGender == 'female' ? Colors.blue : Colors.grey[200],
+                      color: _selectedGender == 'female'
+                          ? Colors.blue
+                          : Colors.grey[200],
                       borderRadius: BorderRadius.circular(8.0),
                     ),
                     child: Column(
@@ -52,13 +56,17 @@ class _WelcomeGenderScreenState extends State<WelcomeGenderScreen> {
                         Icon(
                           Icons.female,
                           size: 40.0,
-                          color: _selectedGender == 'female' ? Colors.white : Colors.blueGrey,
+                          color: _selectedGender == 'female'
+                              ? Colors.white
+                              : Colors.blueGrey,
                         ),
                         const SizedBox(height: 8.0),
                         Text(
                           'Female',
                           style: TextStyle(
-                            color: _selectedGender == 'female' ? Colors.white : Colors.black87,
+                            color: _selectedGender == 'female'
+                                ? Colors.white
+                                : Colors.black87,
                           ),
                         ),
                       ],
@@ -74,7 +82,8 @@ class _WelcomeGenderScreenState extends State<WelcomeGenderScreen> {
                   child: Container(
                     padding: const EdgeInsets.all(15.0),
                     decoration: BoxDecoration(
-                      color: _selectedGender == 'male' ? Colors.blue : Colors.grey[200],
+                      color:
+                      _selectedGender == 'male' ? Colors.blue : Colors.grey[200],
                       borderRadius: BorderRadius.circular(8.0),
                     ),
                     child: Column(
@@ -82,13 +91,17 @@ class _WelcomeGenderScreenState extends State<WelcomeGenderScreen> {
                         Icon(
                           Icons.male,
                           size: 40.0,
-                          color: _selectedGender == 'male' ? Colors.white : Colors.blueGrey,
+                          color: _selectedGender == 'male'
+                              ? Colors.white
+                              : Colors.blueGrey,
                         ),
                         const SizedBox(height: 8.0),
                         Text(
                           'Male',
                           style: TextStyle(
-                            color: _selectedGender == 'male' ? Colors.white : Colors.black87,
+                            color: _selectedGender == 'male'
+                                ? Colors.white
+                                : Colors.black87,
                           ),
                         ),
                       ],
@@ -110,7 +123,7 @@ class _WelcomeGenderScreenState extends State<WelcomeGenderScreen> {
               'Choose your birth date',
               style: TextStyle(fontSize: 16.0),
             ),
-            Expanded( // Wrap the CupertinoDatePicker with Expanded
+            Expanded(
               child: CupertinoDatePicker(
                 mode: CupertinoDatePickerMode.date,
                 initialDateTime: _selectedDate,
@@ -121,16 +134,38 @@ class _WelcomeGenderScreenState extends State<WelcomeGenderScreen> {
                 },
               ),
             ),
-            const SizedBox(height: 20.0), // Add some spacing above the button
+            const SizedBox(height: 20.0),
             SizedBox(
               width: double.infinity,
               child: ElevatedButton(
-                onPressed: _selectedGender != null ? () {
+                onPressed: _selectedGender != null
+                    ? () async { // Make onPressed async
                   // Access selected gender and _selectedDate here
                   print('Selected Gender: $_selectedGender');
                   print('Selected Date: $_selectedDate');
-                  Navigator.pushReplacementNamed(context, '/activityLevel');
-                } : null,
+
+                  //get user
+                  User? user = FirebaseAuth.instance.currentUser;
+                  if (user != null) {
+                    //update firestore
+                    try {
+                      await FirebaseFirestore.instance
+                          .collection('users')
+                          .doc(user.uid)
+                          .update({
+                        'welcomeGenderCompleted': true,
+                        'gender': _selectedGender, // Store gender
+                        'birthday': _selectedDate, // Store birthday
+                      });
+                      print("Firestore updated for welcomeGenderCompleted");
+                    } catch (e) {
+                      print("Error updating Firestore: $e");
+                    }
+                  }
+                  Navigator.pushReplacementNamed(
+                      context, '/activityLevel');
+                }
+                    : null,
                 child: const Padding(
                   padding: EdgeInsets.symmetric(vertical: 15.0),
                   child: Text(
@@ -146,3 +181,4 @@ class _WelcomeGenderScreenState extends State<WelcomeGenderScreen> {
     );
   }
 }
+
