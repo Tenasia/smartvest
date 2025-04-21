@@ -71,6 +71,7 @@ class AuthService {
           'weightKg': weightKg,
           // Add any other initial user data here
         });
+
         print("User document created in Firestore for UID: ${user.uid}");
       }
       return credential;
