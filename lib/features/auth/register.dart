@@ -81,7 +81,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
       _errorMessage = '';
     });
     try {
-      final UserCredential? userCredential = await _authService.signUpWithGoogle(context);
+      final UserCredential? userCredential = await _authService.signInWithGoogle(context);
       if (userCredential != null) {
         print('Google sign-up successful! User ID: ${userCredential.user?.uid}');
         // Check if the user's profile is completed in Firestore

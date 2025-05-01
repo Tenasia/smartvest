@@ -34,6 +34,22 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  // Helper function to calculate age from birthday Timestamp
+  int? _calculateAge(Timestamp? birthdayTimestamp) {
+    if (birthdayTimestamp == null) {
+      return null;
+    }
+    DateTime birthday = birthdayTimestamp.toDate();
+    DateTime today = DateTime.now();
+    int age = today.year - birthday.year;
+    if (today.month < birthday.month ||
+        (today.month == birthday.month && today.day < birthday.day)) {
+      age--;
+    }
+    return age;
+  }
+
+
   Widget _buildConnectDeviceNotice(String message) {
     return Padding(
       padding: const EdgeInsets.all(16.0),
@@ -72,7 +88,12 @@ class _HomeScreenState extends State<HomeScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        leading: const Icon(Icons.arrow_back),
+        leading: IconButton( // Changed from Icon to IconButton
+          icon: const Icon(Icons.arrow_back),
+          onPressed: () {
+            Navigator.pop(context); // Add navigation functionality
+          },
+        ),
         title: Text('Welcome, ${_userData?['firstName'] ?? 'User'} ${_userData?['lastName'] ?? ''}'),
       ),
       body: _userData == null
@@ -82,9 +103,11 @@ class _HomeScreenState extends State<HomeScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            // Always show user details regardless of device connection status
+            _buildUserDetailsCard(),
+            const SizedBox(height: 20),
+
             if (hasDeviceConnected) ...[
-              _buildUserDetailsCard(),
-              const SizedBox(height: 20),
               _buildPostureCard(),
               const SizedBox(height: 20),
               _buildHeartRateCard(),
@@ -101,12 +124,10 @@ class _HomeScreenState extends State<HomeScreen> {
             ] else if (previouslyHasDeviceConnected && !hasDeviceConnected) ...[
               _buildConnectDeviceNotice('Your device is disconnected. Please reconnect to view your data.'),
               const SizedBox(height: 20),
-              _buildUserDetailsCard(), // Still show basic user info
               // Optionally show placeholders or less detailed versions of other cards
             ] else ...[
               _buildConnectDeviceNotice('Connect your device to start viewing your health data.'),
               const SizedBox(height: 20),
-              _buildUserDetailsCard(), // Still show basic user info
               // Optionally show empty state indicators for other cards
             ],
           ],
@@ -116,8 +137,16 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildUserDetailsCard() {
+    // Access the data directly from _userData
+    final String firstName = _userData?['firstName'] ?? '';
+    final String lastName = _userData?['lastName'] ?? '';
+    final Timestamp? birthdayTimestamp = _userData?['birthday'] as Timestamp?;
+    final int? age = _calculateAge(birthdayTimestamp); // Calculate age
+    final int? heightCm = _userData?['heightCm'] as int?;
+    final double? weightKg = _userData?['weightKg'] as double?; // Assuming weight is stored as double
+
     return Card(
-      // ... (rest of your _buildUserDetailsCard widget)
+      margin: EdgeInsets.zero, // Adjust margin if needed
       child: Padding(
         padding: const EdgeInsets.all(16.0),
         child: Row(
@@ -127,25 +156,31 @@ class _HomeScreenState extends State<HomeScreen> {
               child: Icon(Icons.person, size: 40),
             ),
             const SizedBox(width: 16),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  '${_userData?['firstName'] ?? ''} ${_userData?['lastName'] ?? ''}',
-                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
-                ),
-                const Text('Manila', style: TextStyle(color: Colors.grey)),
-                const SizedBox(height: 8),
-                Row(
-                  children: [
-                    _buildDetailItem('28', 'Age'),
-                    const SizedBox(width: 16),
-                    _buildDetailItem('${_userData?['heightCm'] ?? '--'} cm', 'Height'),
-                    const SizedBox(width: 16),
-                    _buildDetailItem('${_userData?['weightKg'] ?? '--'} kg', 'Weight'),
-                  ],
-                ),
-              ],
+            Expanded( // Use Expanded to prevent overflow
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    '$firstName $lastName',
+                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+                  ),
+                  // Replace static location with data if available, otherwise use static or placeholder
+                  // Text(_userData?['location'] ?? 'Location not set', style: const TextStyle(color: Colors.grey)),
+                  const Text('Manila', style: TextStyle(color: Colors.grey)), // Keeping static as per original code
+
+                  const SizedBox(height: 8),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween, // Distribute items
+                    children: [
+                      _buildDetailItem(age != null ? age.toString() : '--', 'Age'),
+                      // Ensure null check and add units
+                      _buildDetailItem(heightCm != null ? '$heightCm cm' : '--', 'Height'),
+                      // Ensure null check and add units
+                      _buildDetailItem(weightKg != null ? '${weightKg.toStringAsFixed(1)} kg' : '--', 'Weight'), // Format weight
+                    ],
+                  ),
+                ],
+              ),
             ),
           ],
         ),
@@ -155,6 +190,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Widget _buildDetailItem(String value, String label) {
     return Column(
+      crossAxisAlignment: CrossAxisAlignment.start, // Align text to start
       children: [
         Text(value, style: const TextStyle(fontWeight: FontWeight.bold)),
         Text(label, style: const TextStyle(color: Colors.grey, fontSize: 12)),
@@ -173,6 +209,11 @@ class _HomeScreenState extends State<HomeScreen> {
             Text('Posture', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
             SizedBox(height: 16),
             // ... (rest of the posture card content)
+            Text('Good', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.green)),
+            SizedBox(height: 8),
+            LinearProgressIndicator(value: 0.8), // Example progress
+            SizedBox(height: 8),
+            Text('80% of the time', style: TextStyle(color: Colors.grey)),
           ],
         ),
       ),
@@ -182,14 +223,36 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget _buildHeartRateCard() {
     return Card(
       // ... (rest of your _buildHeartRateCard widget)
-      child: const Padding(
-        padding: EdgeInsets.all(16.0),
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Heart Rate', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-            SizedBox(height: 8),
+            const Text('Heart Rate', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+            const SizedBox(height: 8),
             // ... (rest of the heart rate card content)
+            const Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Current', style: TextStyle(color: Colors.grey)),
+                    Text('75 bpm', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
+                  ],
+                ),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Resting Avg', style: TextStyle(color: Colors.grey)),
+                    Text('68 bpm', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
+                  ],
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            // Placeholder for a chart
+            Container(height: 100, color: Colors.blueGrey[50]),
           ],
         ),
       ),
@@ -207,6 +270,9 @@ class _HomeScreenState extends State<HomeScreen> {
             Text('HRV', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
             SizedBox(height: 8),
             // ... (rest of the HRV card content)
+            Text('Excellent', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.green)),
+            SizedBox(height: 4),
+            Text('Avg: 60 ms', style: TextStyle(color: Colors.grey)),
           ],
         ),
       ),
@@ -224,6 +290,9 @@ class _HomeScreenState extends State<HomeScreen> {
             Text('Stress Level', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
             SizedBox(height: 8),
             // ... (rest of the stress level card content)
+            Text('Low', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.teal)),
+            SizedBox(height: 4),
+            Text('Score: 25', style: TextStyle(color: Colors.grey)),
           ],
         ),
       ),
@@ -241,6 +310,15 @@ class _HomeScreenState extends State<HomeScreen> {
             Text('Device', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
             SizedBox(height: 16),
             // ... (rest of the device card content)
+            Row(
+              children: [
+                Icon(Icons.watch),
+                SizedBox(width: 8),
+                Text('My Health Tracker (Connected)', style: TextStyle(fontSize: 16, color: Colors.green)),
+              ],
+            ),
+            SizedBox(height: 8),
+            Text('Last Sync: Just now', style: TextStyle(color: Colors.grey)),
           ],
         ),
       ),

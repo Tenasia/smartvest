@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter_svg/flutter_svg.dart'; // Import the SVG package
 
 class ActivityLevelScreen extends StatefulWidget {
   const ActivityLevelScreen({super.key});
@@ -13,9 +14,13 @@ class _ActivityLevelScreenState extends State<ActivityLevelScreen> {
   String? _selectedActivityLevel;
 
   Widget _buildActivityOption(String label, String imagePath, String value) {
+    // Access the state variable (assuming this widget is part of a StatefulWidget)
+    // If this is a separate widget, you might pass _selectedActivityLevel and setState as parameters
     final bool isSelected = _selectedActivityLevel == value;
+
     return GestureDetector(
       onTap: () {
+        // Call setState from the parent StatefulWidget
         setState(() {
           _selectedActivityLevel = value;
         });
@@ -33,9 +38,12 @@ class _ActivityLevelScreenState extends State<ActivityLevelScreen> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: <Widget>[
-            Image.asset(
+            // Use SvgPicture.asset to load the SVG file
+            SvgPicture.asset(
               imagePath,
               height: 80.0, // Adjust image height as needed
+              // You can also add color, width, etc. properties here
+              // colorFilter: ColorFilter.mode(isSelected ? Colors.blue : Colors.black87, BlendMode.srcIn),
             ),
             const SizedBox(height: 8.0),
             Text(
@@ -84,10 +92,10 @@ class _ActivityLevelScreenState extends State<ActivityLevelScreen> {
                 mainAxisSpacing: 15.0,
                 childAspectRatio: 1.0, // To make the grid items square
                 children: <Widget>[
-                  _buildActivityOption('Sedentary', 'assets/sedentary.png', 'sedentary'),
-                  _buildActivityOption('Light Activity', 'assets/light_activity.png', 'light'),
-                  _buildActivityOption('Active', 'assets/active.png', 'active'),
-                  _buildActivityOption('Very Active', 'assets/very_active.png', 'very_active'),
+                  _buildActivityOption('Sedentary', 'assets/sedentary.svg', 'sedentary'),
+                  _buildActivityOption('Light Activity', 'assets/light_activity.svg', 'light'),
+                  _buildActivityOption('Active', 'assets/active.svg', 'active'),
+                  _buildActivityOption('Very Active', 'assets/very_active.svg', 'very_active'),
                 ],
               ),
             ),
