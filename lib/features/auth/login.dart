@@ -2,6 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:smartvest/core/services/auth_service.dart'; // Import your AuthService
 import 'package:flutter/widgets.dart';
+import 'package:font_awesome_flutter/font_awesome_flutter.dart'; // For the Google icon
+// Make sure AuthService is imported
+import 'package:smartvest/core/services/auth_service.dart';
+import 'package:cloud_firestore/cloud_firestore.dart'; // Import Firestore
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -17,7 +21,44 @@ class _LoginScreenState extends State<LoginScreen> {
   final AuthService _authService = AuthService(); // Instance of AuthService
   bool _isLoading = false; // Track loading state
   String _errorMessage = ''; // To display errors
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance; // Add Firestore instance
 
+  Future<void> _handleGoogleSignIn() async {
+    setState(() {
+      _isLoading = true;
+      _errorMessage = '';
+    });
+    try {
+      final UserCredential? userCredential = await _authService.signInWithGoogle(context);
+      if (userCredential != null) {
+        print('Google sign-in successful! User ID: ${userCredential.user?.uid}');
+        // Check if the user's profile is completed in Firestore
+        final userDoc = await _firestore.collection('users').doc(userCredential.user!.uid).get();
+        final profileCompleted = userDoc.data()?['profileCompleted'] ?? false;
+
+        if (profileCompleted) {
+          Navigator.pushReplacementNamed(context, '/dashboard'); // Navigate to dashboard if profile complete
+        } else {
+          Navigator.pushReplacementNamed(context, '/welcome'); // Navigate to welcome flow if profile incomplete
+        }
+      }
+      // If userCredential is null, it might mean the sign-in was cancelled or failed before Firebase interaction.
+      // The _authService.signInWithGoogle method handles navigation for incomplete profiles already. [cite: 3]
+    } catch (e) {
+      print('Google sign-in error: $e');
+      setState(() {
+        _isLoading = false;
+        // Use a more specific error message if possible, otherwise a generic one.
+        _errorMessage = 'Failed to sign in with Google. Please try again.';
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
+    }
+  }
   // Function to handle login
   Future<void> _login() async {
     if (_formKey.currentState!.validate()) {
@@ -152,6 +193,31 @@ class _LoginScreenState extends State<LoginScreen> {
                   style: const TextStyle(color: Colors.red),
                   textAlign: TextAlign.center,
                 ),
+              const SizedBox(height: 10.0), // Add some spacing
+
+              // Google Sign-In Button
+              ElevatedButton.icon(
+                onPressed: _isLoading ? null : _handleGoogleSignIn,
+                icon: const FaIcon(FontAwesomeIcons.google, color: Colors.redAccent),
+                label: _isLoading
+                    ? const SizedBox( // Show a smaller indicator when loading
+                  height: 20,
+                  width: 20,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    valueColor: AlwaysStoppedAnimation<Color>(Colors.white), // Or adapt color
+                  ),
+                )
+                    : const Text('Sign in with Google'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.white, // Or your preferred style
+                  foregroundColor: Colors.black87,
+                ),
+              ),
+
+              const SizedBox(height: 10.0), // Add some spacing
+              // Display error message
+              if (_errorMessage.isNotEmpty)
               const SizedBox(height: 20.0),
               // Navigate to Register Screen
               TextButton(

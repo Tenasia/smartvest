@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:smartvest/features/home.dart';
 import 'package:smartvest/features/calendar.dart';
 import 'package:smartvest/features/notifications.dart';
-import 'package:smartvest/features/profile.dart';
+import 'package:smartvest/features/profile/profile_screen.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});

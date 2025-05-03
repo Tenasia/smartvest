@@ -16,7 +16,9 @@ import 'package:smartvest/features/dashboard.dart'; // Import the DashboardScree
 import 'package:smartvest/features/home.dart';
 import 'package:smartvest/features/calendar.dart';
 import 'package:smartvest/features/notifications.dart';
-import 'package:smartvest/features/profile.dart';
+
+import 'package:smartvest/features/profile/profile_screen.dart'; // Import ProfileScreen
+
 
 class AppRoutes {
   // Authentication Page
