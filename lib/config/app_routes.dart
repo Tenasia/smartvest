@@ -18,6 +18,8 @@ import 'package:smartvest/features/calendar.dart';
 import 'package:smartvest/features/notifications.dart';
 
 import 'package:smartvest/features/profile/profile_screen.dart'; // Import ProfileScreen
+import 'package:smartvest/features/profile/edit_personal_information_screen.dart';
+import 'package:smartvest/features/profile/edit_physical_information_screen.dart';
 
 
 class AppRoutes {
@@ -39,6 +41,8 @@ class AppRoutes {
   static const String calendar = '/calendar';
   static const String notifications = '/notifications';
   static const String profile = '/profile';
+  static const String editPersonalInformation = '/edit_personal_information';
+  static const String editPhysicalInformation = '/edit_physical_information';
 
   static Map<String, WidgetBuilder> routes = {
     // Authentication Page
@@ -59,5 +63,8 @@ class AppRoutes {
     calendar: (context) => const CalendarScreen(),
     notifications: (context) => const NotificationsScreen(),
     profile: (context) => const ProfileScreen(),
+    editPersonalInformation: (context) => const EditPersonalInformationScreen(),
+    editPhysicalInformation: (context) => const EditPhysicalInformationScreen(),
+
   };
 }

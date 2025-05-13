@@ -34,7 +34,8 @@ class AuthService {
           // If profile is not marked as completed, redirect to welcome flow
           if (!profileCompleted) {
             print("Email/Pass Sign In: Profile not complete, navigating to /welcome.");
-            // Use pushReplacementNamed to prevent going back to login screen
+            // Use pushReplacementNamed
+            // to prevent going back to login screen
             Navigator.pushReplacementNamed(context, '/welcome');
             // Return null because navigation is handled, preventing further action in the caller
             return null;
