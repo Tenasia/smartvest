@@ -286,36 +286,38 @@ class AuthService {
   }
 
   // Sign out
-  Future<void> signOut(BuildContext context) async { // Added context for potential navigation after sign out
-    try {
-      print("Attempting to sign out...");
-      // Check if the current user signed in with Google
-      bool signedInWithGoogle = _auth.currentUser?.providerData
-          .any((userInfo) => userInfo.providerId == GoogleAuthProvider.PROVIDER_ID) ?? false;
+  Future<void> signOut() async { // Removed BuildContext context parameter
+    User? firebaseUser = _auth.currentUser; // Get user before Firebase sign out
 
-      if (signedInWithGoogle) {
-        // Only call Google SignOut if they are actually signed in with Google
-        // Check if GoogleSignIn has a currentUser to prevent unnecessary errors
-        if (_googleSignIn.currentUser != null) {
+    try {
+      // Check if the user was signed in with Google
+      bool wasGoogleUser = firebaseUser?.providerData
+          .any((info) => info.providerId == GoogleAuthProvider.PROVIDER_ID) ??
+          false;
+
+      if (wasGoogleUser) {
+        // Attempt to sign out from Google.
+        // This is important to allow the user to choose a different Google account next time.
+        try {
+          print("Attempting GoogleSignIn.signOut()...");
           await _googleSignIn.signOut();
-          print("Signed out from Google.");
-        } else {
-          print("Firebase user linked with Google, but GoogleSignIn has no current user. Skipping Google signOut.");
+          print("GoogleSignIn.signOut() successful.");
+        } catch (e) {
+          // Log the error but don't let it stop the Firebase sign-out.
+          // This can sometimes happen if the GoogleSignIn session is already stale or misconfigured.
+          print("Error during GoogleSignIn.signOut(): $e. Proceeding with Firebase signOut.");
         }
       }
 
-      // Sign out from Firebase
+      print("Attempting FirebaseAuth.signOut()...");
       await _auth.signOut();
-      print("Signed out from Firebase. Current user is now: ${_auth.currentUser?.uid ?? 'null'}");
-
-      // Optional: Navigate to login screen after sign out
-      // Consider clearing navigation stack if navigating back to login/welcome
-      // Navigator.pushNamedAndRemoveUntil(context, '/login', (route) => false);
+      print("FirebaseAuth.signOut() successful.");
 
     } catch (e) {
-      print("Error during sign out: $e");
-      // Handle error appropriately, maybe show a message to the user
-      throw Exception("Failed to sign out: $e");
+      print('Error during AuthService.signOut: $e');
+      // Rethrow the exception to be caught by the UI layer (ProfileScreen)
+      // so it can display an appropriate message to the user.
+      rethrow;
     }
   }
 

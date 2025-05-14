@@ -1,15 +1,17 @@
-import 'dart:io'; // Required for File type
+// lib/features/profile/profile_screen.dart
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:intl/intl.dart'; // For date formatting
-import 'package:image_picker/image_picker.dart'; // For picking images
-import 'package:firebase_storage/firebase_storage.dart'; // For uploading images
-import 'package:smartvest/core/services/auth_service.dart'; // Your AuthService
+import 'package:intl/intl.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:firebase_storage/firebase_storage.dart';
+import 'package:smartvest/config/app_routes.dart';
+import 'package:smartvest/core/services/auth_service.dart';
 
-// Assuming you have this map defined for gender display,
-// or you can define it here or in a shared constants file.
+// Helper function to format gender for display
+// This should be at the top level or as a static method.
 const Map<String, String> _genderDisplayMap = {
   'male': 'Male',
   'female': 'Female',
@@ -23,7 +25,6 @@ String formatGenderForDisplay(String? gender) {
   return _genderDisplayMap[lowerCaseGender] ?? (gender[0].toUpperCase() + gender.substring(1));
 }
 
-
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
 
@@ -34,15 +35,15 @@ class ProfileScreen extends StatefulWidget {
 class _ProfileScreenState extends State<ProfileScreen> {
   final AuthService _authService = AuthService();
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
-  final FirebaseStorage _storage = FirebaseStorage.instance; // Firebase Storage instance
-  final ImagePicker _picker = ImagePicker(); // ImagePicker instance
+  final FirebaseStorage _storage = FirebaseStorage.instance;
+  final ImagePicker _picker = ImagePicker();
 
   User? _currentUser;
   Map<String, dynamic>? _userData;
   bool _isLoading = true;
   String _errorMessage = '';
   bool _isDeviceActionLoading = false;
-  bool _isUploadingImage = false; // For profile picture upload loading state
+  bool _isUploadingImage = false;
 
   @override
   void initState() {
@@ -95,7 +96,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         _errorMessage = 'Failed to load profile data. Please try again.';
       }
     } finally {
-      if(mounted){
+      if (mounted) {
         setState(() {
           _isLoading = false;
         });
@@ -121,18 +122,23 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   Widget _buildDeviceStatusIndicator() {
-    final bool hasDeviceConnected = _userData?['hasDeviceConnected'] as bool? ?? false;
+    final bool hasDeviceConnected =
+        _userData?['hasDeviceConnected'] as bool? ?? false;
     return Row(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
         Icon(
-          hasDeviceConnected ? Icons.bluetooth_connected : Icons.bluetooth_disabled,
+          hasDeviceConnected
+              ? Icons.bluetooth_connected
+              : Icons.bluetooth_disabled,
           color: hasDeviceConnected ? Colors.green : Colors.red,
           size: 20,
         ),
         const SizedBox(width: 8),
         Text(
-          hasDeviceConnected ? 'SmartVest Connected' : 'SmartVest Not Connected',
+          hasDeviceConnected
+              ? 'SmartVest Connected'
+              : 'SmartVest Not Connected',
           style: TextStyle(
             fontSize: 16,
             color: hasDeviceConnected ? Colors.green : Colors.red,
@@ -144,9 +150,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   Future<void> _disconnectDevice() async {
     if (_currentUser == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('User not logged in.')),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('User not logged in.')),
+        );
+      }
       return;
     }
     if (mounted) {
@@ -158,15 +166,20 @@ class _ProfileScreenState extends State<ProfileScreen> {
       await _firestore.collection('users').doc(_currentUser!.uid).update({
         'hasDeviceConnected': false,
       });
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('SmartVest disconnected.')),
-      );
-      await _loadUserData();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('SmartVest disconnected.')),
+        );
+      }
+      await _loadUserData(); // Refresh data
     } catch (e) {
       print('Error disconnecting device: $e');
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Failed to disconnect SmartVest: ${e.toString()}')),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+              content: Text('Failed to disconnect SmartVest: ${e.toString()}')),
+        );
+      }
     } finally {
       if (mounted) {
         setState(() {
@@ -176,28 +189,18 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
   }
 
-  Future<void> _signOut() async {
-    try {
-      await _authService.signOut(context);
-      Navigator.of(context).pushNamedAndRemoveUntil('/login', (route) => false);
-    } catch (e) {
-      print("Sign out error: $e");
-      if(mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to sign out: ${e.toString()}')),
-        );
-      }
-    }
-  }
-
   Future<void> _updateProfilePicture() async {
     if (_currentUser == null) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("User not logged in.")));
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(const SnackBar(content: Text("User not logged in.")));
+      }
       return;
     }
 
     final ImageSource? source;
     try {
+      if (!mounted) return;
       source = await showModalBottomSheet<ImageSource>(
         context: context,
         builder: (BuildContext context) {
@@ -223,7 +226,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           );
         },
       );
-    } catch(e) {
+    } catch (e) {
       print("Error showing image source picker: $e");
       return;
     }
@@ -240,8 +243,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       print("Error picking image: $e");
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Failed to pick image: ${e.toString()}'))
-        );
+            SnackBar(content: Text('Failed to pick image: ${e.toString()}')));
       }
       return;
     }
@@ -259,64 +261,45 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
     File imageFile = File(pickedFile.path);
     String fileExtension = pickedFile.path.split('.').lastOrNull ?? 'jpg';
-    String fileName = '${_currentUser!.uid}_${DateTime.now().millisecondsSinceEpoch}.$fileExtension';
+    String fileName =
+        '${_currentUser!.uid}_${DateTime.now().millisecondsSinceEpoch}.$fileExtension';
     Reference storageRef = _storage.ref().child('profile_pictures/$fileName');
 
-    print("Attempting to upload to: ${storageRef.fullPath}");
-
     try {
-      // 1. Upload the file
       UploadTask uploadTask = storageRef.putFile(imageFile);
       TaskSnapshot snapshot = await uploadTask;
-      print("Upload Task completed. State: ${snapshot.state}");
 
-      // Check if upload was successful before getting URL
       if (snapshot.state == TaskState.success) {
-        print("File uploaded successfully to ${snapshot.ref.fullPath}. Attempting to get Download URL.");
-
-        // 2. Get the download URL
         final String downloadUrl = await snapshot.ref.getDownloadURL();
-        print('Download URL: $downloadUrl');
-
-        // 3. Update Firebase Auth
         await _currentUser!.updatePhotoURL(downloadUrl);
-        print('Firebase Auth photoURL updated.');
-
-        // 4. Update Firestore
-        await _firestore.collection('users').doc(_currentUser!.uid).update({
+        await _firestore
+            .collection('users')
+            .doc(_currentUser!.uid)
+            .update({
           'photoURL': downloadUrl,
         });
-        print('Firestore photoURL updated.');
 
-        // 5. Refresh user data for UI
         await _currentUser!.reload();
         _currentUser = FirebaseAuth.instance.currentUser;
-        await _loadUserData();
+        await _loadUserData(); // Reload data to update UI
 
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Profile picture updated successfully!')),
+            const SnackBar(
+                content: Text('Profile picture updated successfully!')),
           );
         }
       } else {
-        // Handle other states like error, paused, canceled if needed, though await should throw for errors.
-        print("Upload was not successful. State: ${snapshot.state}");
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Image upload failed. State: ${snapshot.state}')),
+            SnackBar(
+                content: Text('Image upload failed. State: ${snapshot.state}')),
           );
         }
       }
     } catch (e) {
       print("Error during image upload or URL retrieval: $e");
-      if (e is FirebaseException && e.code == 'object-not-found') {
-        print("Object not found specifically. This likely means rules are blocking or upload failed silently before getDownloadURL.");
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Upload failed: File not found. Please check Firebase Storage rules and try again.')),
-          );
-        }
-      } else if (mounted) {
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('An error occurred: ${e.toString()}')),
         );
@@ -330,18 +313,42 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
   }
 
+  Future<void> _signOut() async {
+    try {
+      print("ProfileScreen: Initiating sign out...");
+      await _authService.signOut();
+      print("ProfileScreen: Sign out from AuthService completed.");
+
+      if (mounted) {
+        print("ProfileScreen: Navigating to login screen.");
+        Navigator.of(context)
+            .pushNamedAndRemoveUntil(AppRoutes.login, (route) => false);
+      } else {
+        print(
+            "ProfileScreen: Widget not mounted after sign out, cannot navigate.");
+      }
+    } catch (e) {
+      print("Error in ProfileScreen _signOut: $e");
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to sign out: ${e.toString()}')),
+        );
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     String? photoUrl = _userData?['photoURL'] ?? _currentUser?.photoURL;
     String? rawGender = _userData?['gender'] as String?;
-    String displayGender = formatGenderForDisplay(rawGender);
+    String displayGender = formatGenderForDisplay(rawGender); // Corrected: Use top-level function
     final bool hasDeviceConnected = _userData?['hasDeviceConnected'] as bool? ?? false;
 
     return Scaffold(
       appBar: AppBar(
         title: const Text('Profile'),
         centerTitle: true,
+        automaticallyImplyLeading: false,
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
@@ -350,7 +357,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         child: Padding(
           padding: const EdgeInsets.all(16.0),
           child: Text(
-            _errorMessage,
+            _errorMessage, // Corrected: Added argument
             style: const TextStyle(color: Colors.red),
             textAlign: TextAlign.center,
           ),
@@ -363,7 +370,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                const Text('Could not load profile data.'),
+                const Text('Could not load profile data.'), // Corrected: Added argument
                 const SizedBox(height: 10),
                 ElevatedButton(
                   onPressed: _loadUserData,
@@ -381,33 +388,46 @@ class _ProfileScreenState extends State<ProfileScreen> {
               child: Column(
                 children: [
                   GestureDetector(
-                    onTap: _isUploadingImage ? null : _updateProfilePicture,
+                    onTap: _isUploadingImage
+                        ? null
+                        : _updateProfilePicture,
                     child: Stack(
                       alignment: Alignment.center,
                       children: [
                         CircleAvatar(
                           radius: 50,
-                          backgroundImage: (photoUrl != null && photoUrl.isNotEmpty)
+                          backgroundImage: (photoUrl != null &&
+                              photoUrl.isNotEmpty)
                               ? NetworkImage(photoUrl)
                               : null,
-                          child: (photoUrl == null || photoUrl.isEmpty)
+                          child: (photoUrl == null ||
+                              photoUrl.isEmpty)
                               ? const Icon(Icons.person, size: 50)
                               : null,
                         ),
                         if (_isUploadingImage)
-                          const CircularProgressIndicator(color: Colors.white),
+                          const CircularProgressIndicator(
+                              color: Colors.white),
                       ],
                     ),
                   ),
                   const SizedBox(height: 10),
                   Text(
-                    '${_userData?['firstName'] ?? ''} ${_userData?['middleName'] ?? ''} ${_userData?['lastName'] ?? ''}'.trim().replaceAll('  ', ' '),
-                    style: Theme.of(context).textTheme.headlineSmall,
+                    '${_userData?['firstName'] ?? ''} ${_userData?['middleName'] ?? ''} ${_userData?['lastName'] ?? ''}'
+                        .trim()
+                        .replaceAll('  ', ' '),
+                    style:
+                    Theme.of(context).textTheme.headlineSmall,
                     textAlign: TextAlign.center,
                   ),
                   Text(
-                    _userData?['email'] ?? _currentUser?.email ?? 'No email',
-                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: Colors.grey),
+                    _userData?['email'] ??
+                        _currentUser?.email ??
+                        'No email',
+                    style: Theme.of(context)
+                        .textTheme
+                        .bodyMedium
+                        ?.copyWith(color: Colors.grey),
                     textAlign: TextAlign.center,
                   ),
                 ],
@@ -415,47 +435,66 @@ class _ProfileScreenState extends State<ProfileScreen> {
             ),
             const SizedBox(height: 20),
             const Divider(),
-
-            Text('Personal Information', style: Theme.of(context).textTheme.titleMedium),
-            _buildInfoTile(Icons.person_outline, 'First Name', _userData?['firstName'] ?? ''),
-            _buildInfoTile(Icons.person_outline, 'Middle Name', _userData?['middleName'] ?? ''),
-            _buildInfoTile(Icons.person_outline, 'Last Name', _userData?['lastName'] ?? ''),
-            _buildInfoTile(Icons.cake_outlined, 'Birthday', _formatDate(_userData?['birthday'] as Timestamp?)),
+            Text('Personal Information',
+                style: Theme.of(context).textTheme.titleMedium),
+            _buildInfoTile(Icons.person_outline, 'First Name',
+                _userData?['firstName'] ?? ''),
+            _buildInfoTile(Icons.person_outline, 'Middle Name',
+                _userData?['middleName'] ?? ''),
+            _buildInfoTile(Icons.person_outline, 'Last Name',
+                _userData?['lastName'] ?? ''),
             _buildInfoTile(
-                rawGender?.toLowerCase() == 'male' ? Icons.male :
-                rawGender?.toLowerCase() == 'female' ? Icons.female :
-                Icons.person_search,
+                Icons.cake_outlined,
+                'Birthday',
+                _formatDate(
+                    _userData?['birthday'] as Timestamp?)),
+            _buildInfoTile(
+                rawGender?.toLowerCase() == 'male'
+                    ? Icons.male
+                    : rawGender?.toLowerCase() == 'female'
+                    ? Icons.female
+                    : Icons.person_search,
                 'Gender',
-                displayGender
-            ),
+                displayGender),
             const SizedBox(height: 10),
             ElevatedButton.icon(
               icon: const Icon(Icons.edit_outlined),
               label: const Text('Edit Personal Information'),
               onPressed: () {
-                Navigator.pushNamed(context, '/edit_personal_information').then((_) {
+                Navigator.pushNamed(context,
+                    AppRoutes.editPersonalInformation)
+                    .then((_) {
                   _loadUserData();
                 });
               },
-              style: ElevatedButton.styleFrom(minimumSize: const Size(double.infinity, 45)),
+              style: ElevatedButton.styleFrom(
+                  minimumSize: const Size(double.infinity, 45)),
             ),
             const SizedBox(height: 10),
             const Divider(),
-
-            Text('Physical Information', style: Theme.of(context).textTheme.titleMedium),
-            _buildInfoTile(Icons.height, 'Height', '${_userData?['heightCm'] ?? 'N/A'} cm'),
-            _buildInfoTile(Icons.monitor_weight_outlined, 'Weight', '${_userData?['weightKg'] ?? 'N/A'} kg'),
-            _buildInfoTile(Icons.directions_run, 'Activity Level', _userData?['activityLevel'] ?? ''),
+            Text('Physical Information',
+                style: Theme.of(context).textTheme.titleMedium),
+            _buildInfoTile(Icons.height, 'Height',
+                '${_userData?['heightCm'] ?? 'N/A'} cm'),
+            _buildInfoTile(
+                Icons.monitor_weight_outlined,
+                'Weight',
+                '${_userData?['weightKg'] ?? 'N/A'} kg'),
+            _buildInfoTile(Icons.directions_run,
+                'Activity Level', _userData?['activityLevel'] ?? ''),
             const SizedBox(height: 10),
             ElevatedButton.icon(
               icon: const Icon(Icons.edit_outlined),
               label: const Text('Edit Physical Information'),
               onPressed: () {
-                Navigator.pushNamed(context, '/edit_physical_information').then((_) {
+                Navigator.pushNamed(context,
+                    AppRoutes.editPhysicalInformation)
+                    .then((_) {
                   _loadUserData();
                 });
               },
-              style: ElevatedButton.styleFrom(minimumSize: const Size(double.infinity, 45)),
+              style: ElevatedButton.styleFrom(
+                  minimumSize: const Size(double.infinity, 45)),
             ),
             const SizedBox(height: 20),
             const Divider(),
@@ -469,22 +508,27 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     const CircularProgressIndicator()
                   else if (hasDeviceConnected)
                     ElevatedButton.icon(
-                      icon: const Icon(Icons.bluetooth_disabled),
+                      icon:
+                      const Icon(Icons.bluetooth_disabled),
                       label: const Text('Disconnect SmartVest'),
-                      onPressed: _disconnectDevice,
+                      onPressed: _disconnectDevice, // Corrected: Added onPressed
                       style: ElevatedButton.styleFrom(
                           backgroundColor: Colors.red[400],
-                          minimumSize: const Size(200, 45)
-                      ),
+                          minimumSize: const Size(200, 45)),
                     )
                   else
                     ElevatedButton.icon(
-                      icon: const Icon(Icons.bluetooth_searching),
-                      label: const Text('Search for SmartVest'),
-                      onPressed: () {
-                        Navigator.pushNamed(context, '/search_device');
+                      icon: const Icon(
+                          Icons.bluetooth_searching),
+                      label:
+                      const Text('Search for SmartVest'),
+                      onPressed: () { // Corrected: Added onPressed
+                        if (mounted) {
+                          Navigator.pushNamed(context, AppRoutes.searchAndConnect);
+                        }
                       },
-                      style: ElevatedButton.styleFrom(minimumSize: const Size(200, 45)),
+                      style: ElevatedButton.styleFrom(
+                          minimumSize: const Size(200, 45)),
                     ),
                 ],
               ),
@@ -494,7 +538,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
             const SizedBox(height: 20),
             OutlinedButton.icon(
               icon: const Icon(Icons.logout, color: Colors.red),
-              label: const Text('Sign Out', style: TextStyle(color: Colors.red)),
+              label: const Text('Sign Out',
+                  style: TextStyle(color: Colors.red)),
               onPressed: _signOut,
               style: OutlinedButton.styleFrom(
                 minimumSize: const Size(double.infinity, 45),

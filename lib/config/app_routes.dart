@@ -1,3 +1,4 @@
+// lib/config/app_routes.dart
 import 'package:flutter/material.dart';
 // Authentication Page
 import 'package:smartvest/features/auth/login.dart';
@@ -12,15 +13,17 @@ import 'package:smartvest/features/welcome/height_and_weight.dart';
 // Device Page
 import 'package:smartvest/features/device/search_and_connect.dart';
 // Main Page
-import 'package:smartvest/features/dashboard.dart'; // Import the DashboardScreen
+import 'package:smartvest/features/dashboard.dart';
 import 'package:smartvest/features/home.dart';
 import 'package:smartvest/features/calendar.dart';
 import 'package:smartvest/features/notifications.dart';
 
-import 'package:smartvest/features/profile/profile_screen.dart'; // Import ProfileScreen
+import 'package:smartvest/features/profile/profile_screen.dart';
 import 'package:smartvest/features/profile/edit_personal_information_screen.dart';
 import 'package:smartvest/features/profile/edit_physical_information_screen.dart';
 
+// Import the placeholder for PostureScreen (you'll create this file)
+import 'package:smartvest/features/posture_screen.dart'; // Assuming this path
 
 class AppRoutes {
   // Authentication Page
@@ -34,7 +37,7 @@ class AppRoutes {
   static const String activityLevel = '/activityLevel';
   static const String heightAndWeight = '/heightAndWeight';
   // Device Page
-  static const String searchAndConnect = '/searchAndConnect';
+  static const String searchAndConnect = '/searchAndConnect'; // Corrected from '/searchAndConnect' if it was a typo
   // Main Page
   static const String dashboard = '/dashboard';
   static const String home = '/home';
@@ -43,6 +46,10 @@ class AppRoutes {
   static const String profile = '/profile';
   static const String editPersonalInformation = '/edit_personal_information';
   static const String editPhysicalInformation = '/edit_physical_information';
+
+  // New route for Posture Screen
+  static const String postureScreen = '/posture_screen';
+
 
   static Map<String, WidgetBuilder> routes = {
     // Authentication Page
@@ -66,5 +73,7 @@ class AppRoutes {
     editPersonalInformation: (context) => const EditPersonalInformationScreen(),
     editPhysicalInformation: (context) => const EditPhysicalInformationScreen(),
 
+    // Add PostureScreen to routes
+    postureScreen: (context) => const PostureScreen(),
   };
 }
