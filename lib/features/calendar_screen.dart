@@ -28,6 +28,7 @@ const Color _stressIconColor = Color(0xFFFFA000);
 const Color _stressValueColor = Color(0xFF333333);
 
 const Color _deviceBatteryGoodColor = Color(0xFF27AE60);
+const Color _deviceTitleIconColor = _primaryAppColor;
 
 final BorderRadius _cardBorderRadius = BorderRadius.circular(12.0);
 const EdgeInsets _cardPadding = EdgeInsets.all(16.0);
@@ -531,60 +532,33 @@ class _HomeScreenState extends State<HomeScreen> {
     const String batteryPercentage = "99%";
     const double batteryLevel = 0.99;
 
-    Widget vestIconPlaceholder = Container(
-      width: 80,
-      height: 100,
-      decoration: BoxDecoration(
-        color: Colors.grey.shade300,
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Icon(Icons.shield_outlined, size: 50, color: Colors.grey.shade600),
+    Widget vestIconPlaceholder = Icon(
+      Icons.shield_outlined,
+      size: 40,
+      color: _deviceTitleIconColor,
     );
 
-    final deviceCardContent = Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+    final deviceCardContent = Row(
       children: [
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: [
-            vestIconPlaceholder,
-            const SizedBox(width: 20),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text("Battery Status", style: _deviceStatusLabelStyle),
-                  const SizedBox(height: 4),
-                  Text(batteryPercentage, style: _deviceBatteryPercentageStyle),
-                  const SizedBox(height: 8),
-                  Row(
-                    children: [
-                      Icon(
-                        batteryLevel > 0.8 ? Icons.battery_full_rounded :
-                        batteryLevel > 0.5 ? Icons.battery_std_rounded :
-                        batteryLevel > 0.2 ? Icons.battery_alert_rounded : Icons.battery_unknown_rounded,
-                        color: _deviceBatteryGoodColor,
-                        size: 18,
-                      ),
-                      const SizedBox(width: 6),
-                      Expanded(
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(3),
-                          child: LinearProgressIndicator(
-                            value: batteryLevel,
-                            backgroundColor: Colors.grey.shade300,
-                            valueColor: const AlwaysStoppedAnimation<Color>(_deviceBatteryGoodColor),
-                            minHeight: 6,
-                          ),
-                        ),
-                      ),
-                    ],
-                  )
-                ],
+        vestIconPlaceholder,
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Smart Vest Connected',
+                style: _statValueStyle.copyWith(fontSize: 16, color: _statusGoodColor),
               ),
-            )
-          ],
+              const SizedBox(height: 4),
+              Text(
+                'Battery: $batteryPercentage',
+                style: _subtleTextStyle,
+              ),
+            ],
+          ),
         ),
+        Icon(Icons.chevron_right, color: _secondaryTextColor.withOpacity(0.7)),
       ],
     );
 
@@ -595,12 +569,19 @@ class _HomeScreenState extends State<HomeScreen> {
         }
       },
       borderRadius: _cardBorderRadius,
-      child: _buildCardTemplate(
-          icon: Icons.shield_outlined, // Changed icon to reflect device/vest
-          title: "SMART VEST", // Changed title
-          titleIconColor: _primaryAppColor,
-          content: deviceCardContent,
-          titleStyle: _deviceCardTitleStyle.copyWith(fontSize: _cardTitleStyle.fontSize, color: _cardTitleStyle.color) // Using device title style but matching template's general look
+      child: Card(
+        elevation: _cardElevation,
+        shape: RoundedRectangleBorder(borderRadius: _cardBorderRadius),
+        color: _cardBgColor,
+        margin: const EdgeInsets.only(bottom: 16.0),
+        child: Padding(
+          padding: _cardPadding,
+          // The _buildCardTemplate includes a title row, which is not what the
+          // new Device Card design on home screen has.
+          // So, we directly use the deviceCardContent.
+          // If a title bar was needed like other cards, _buildCardTemplate would be used.
+          child: deviceCardContent,
+        ),
       ),
     );
   }
@@ -687,11 +668,11 @@ class _HomeScreenState extends State<HomeScreen> {
                       children: [
                         _buildHrvCard(),
                         const SizedBox(width: 16),
-                        _buildStressLevelCard(),
+                        _buildStressLevelCard(), // Now Clickable
                       ],
                     ),
                   ),
-                  _buildDeviceCard(), // Now Clickable
+                  _buildDeviceCard(),
                 ] else ...[
                   _buildConnectDeviceNotice('Connect your device to start viewing your health data.'),
                 ],

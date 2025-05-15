@@ -24,6 +24,9 @@ import 'package:smartvest/features/profile/edit_physical_information_screen.dart
 
 // Import the placeholder for PostureScreen (you'll create this file)
 import 'package:smartvest/features/posture_screen.dart'; // Assuming this path
+import 'package:smartvest/features/heartrate_screen.dart';
+import 'package:smartvest/features/stress_level_screen.dart';
+import 'package:smartvest/features/smart_vest_screen.dart';
 
 class AppRoutes {
   // Authentication Page
@@ -49,7 +52,9 @@ class AppRoutes {
 
   // New route for Posture Screen
   static const String postureScreen = '/posture_screen';
-
+  static const String heartRateScreen = '/heart_rate_screen';
+  static const String stressLevelScreen = '/stress_level_screen';
+  static const String smartVestScreen = '/smart_vest_screen';
 
   static Map<String, WidgetBuilder> routes = {
     // Authentication Page
@@ -75,5 +80,8 @@ class AppRoutes {
 
     // Add PostureScreen to routes
     postureScreen: (context) => const PostureScreen(),
+    heartRateScreen: (context) => const HeartRateScreen(),
+    stressLevelScreen: (context) => const StressLevelScreen(),
+    smartVestScreen: (context) => const SmartVestScreen(),
   };
 }
