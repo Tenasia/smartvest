@@ -314,7 +314,24 @@ class _StressLevelScreenState extends State<StressLevelScreen> {
           _buildCurrentStressLevelCard(),    // Card 1 from Figma
           _buildStressLevelGraphCard(),      // Card 2 from Figma
           _buildSummaryCard(),               // Card 3 from Figma
+          Padding(
+            padding: const EdgeInsets.only(top: 8.0),
+            child: Text(
+              "Note: Heart Rate Variability (HRV) is one of many factors considered and has limitations as a sole measure of stress.", // [cite: 86]
+              style: TextStyle(fontSize: 11, color: Colors.grey[600]),
+              textAlign: TextAlign.center,
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: Text(
+              "Data is for informational purposes only. Not for clinical use.",
+              style: TextStyle(fontSize: 12, color: Colors.grey),
+              textAlign: TextAlign.center,
+            ),
+          ),
         ],
+
       ),
     );
   }

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:smartvest/config/app_routes.dart';
+import 'features/auth/login.dart';
 import 'firebase_options.dart';
 
 void main() async {
@@ -40,10 +41,12 @@ class MyApp extends StatelessWidget {
         // tested with just a hot reload.
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
       ),
-      home: const MyHomePage(title: 'Flutter Demo Home Page'),
+      home: Initializer(), // Or your main entry point
     );
   }
 }
+
+
 
 class MyHomePage extends StatefulWidget {
   const MyHomePage({super.key, required this.title});
@@ -61,6 +64,57 @@ class MyHomePage extends StatefulWidget {
 
   @override
   State<MyHomePage> createState() => _MyHomePageState();
+
+
+}
+class Initializer extends StatefulWidget {
+  @override
+  _InitializerState createState() => _InitializerState();
+}
+
+class _InitializerState extends State<Initializer> {
+  @override
+  void initState() {
+    super.initState();
+    // Show disclaimer after the first frame
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _showDisclaimerDialog(context);
+    });
+  }
+
+  void _showDisclaimerDialog(BuildContext context) {
+    // Check if disclaimer has been shown before using shared_preferences
+    // For simplicity, this example shows it every time.
+    showDialog(
+      context: context,
+      barrierDismissible: false, // User must acknowledge
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: Text("Important Disclaimer"),
+          content: SingleChildScrollView( // In case of long text
+            child: Text(
+                "The data provided by SmartVest is for reference and informational purposes only and is not intended for clinical or medical diagnostic use. Please consult with a healthcare professional for any health concerns or before making any decisions related to your health. User discretion is advised for the data gathered."
+            ),
+          ),
+          actions: <Widget>[
+            TextButton(
+              child: Text("I Understand"),
+              onPressed: () {
+                // Potentially save a flag in shared_preferences so it doesn't show again
+                Navigator.of(context).pop();
+              },
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // Navigate to your actual home screen or login screen after initialization
+    return LoginScreen(); // Or your app's main screen
+  }
 }
 
 class _MyHomePageState extends State<MyHomePage> {

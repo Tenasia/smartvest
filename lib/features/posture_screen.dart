@@ -438,7 +438,14 @@ class _PostureScreenState extends State<PostureScreen> {
           _buildPostureGraphCard(),
           _buildYourPostureAngleTodayCard(), // Adjusted Posture Angle Card
           _buildSummaryCard(), // New Summary Card Added
-
+          Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: Text(
+              "Data is for informational purposes only. Not for clinical use.",
+              style: TextStyle(fontSize: 12, color: Colors.grey),
+              textAlign: TextAlign.center,
+            ),
+          ),
         ],
       ),
     );

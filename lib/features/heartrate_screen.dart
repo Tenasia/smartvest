@@ -332,6 +332,14 @@ class _HeartRateScreenState extends State<HeartRateScreen> {
           _buildYourHeartRateTodayCard(),    // New Card 2
           _buildHeartRateGraphCard(),        // New Card 3
           _buildSummaryCard(),               // New Card 4
+          Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: Text(
+              "Data is for informational purposes only. Not for clinical use.",
+              style: TextStyle(fontSize: 12, color: Colors.grey),
+              textAlign: TextAlign.center,
+            ),
+          ),
         ],
       ),
     );
