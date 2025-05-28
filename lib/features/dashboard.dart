@@ -23,6 +23,44 @@ class _DashboardScreenState extends State<DashboardScreen> {
     const ProfileScreen(),     // Index 3: Profile
   ];
 
+  @override
+  void initState() {
+    super.initState();
+    // Show disclaimer after the first frame when DashboardScreen is initialized
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _showDisclaimerDialog(context);
+    });
+  }
+
+  void _showDisclaimerDialog(BuildContext context) {
+    // Check if disclaimer has been shown before using shared_preferences
+    // For simplicity, this example shows it every time.
+    // You might want to add logic here to show it only once using shared_preferences.
+    showDialog(
+      context: context,
+      barrierDismissible: false, // User must acknowledge
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: Text("Important Disclaimer"),
+          content: SingleChildScrollView( // In case of long text
+            child: Text(
+                "The data provided by SmartVest is for reference and informational purposes only and is not intended for clinical or medical diagnostic use. Please consult with a healthcare professional for any health concerns or before making any decisions related to your health. User discretion is advised for the data gathered."
+            ),
+          ),
+          actions: <Widget>[
+            TextButton(
+              child: Text("I Understand"),
+              onPressed: () {
+                // Potentially save a flag in shared_preferences so it doesn't show again
+                Navigator.of(context).pop();
+              },
+            ),
+          ],
+        );
+      },
+    );
+  }
+
   void _onItemTapped(int index) {
     setState(() {
       _selectedIndex = index;
