@@ -106,6 +106,11 @@ class AuthService {
           'displayName': user.displayName ?? '', // Add fields expected by Google sign-in merge
           'photoURL': user.photoURL ?? '', // Add fields expected by Google sign-in merge
           'lastSignInTime': FieldValue.serverTimestamp(), // Add fields expected by Google sign-in merge
+          'esp32Identifier': null,
+          'esp32MacAddress': null,
+          'isDeviceBound': false,
+          'hasDeviceConnected': false, // Reset for session
+          'previouslyHasDeviceConnected': false, // Reset for session
         });
         print("User document created in Firestore for UID: ${user.uid}");
       }
@@ -184,6 +189,11 @@ class AuthService {
             'activityLevel': '',
             'heightCm': null,
             'weightKg': null,
+            'esp32Identifier': null,
+            'esp32MacAddress': null,
+            'isDeviceBound': false,
+            'hasDeviceConnected': false,
+            'previouslyHasDeviceConnected': false,
             // Note: providerData is already handled in the base map using arrayUnion
           });
         } else {
