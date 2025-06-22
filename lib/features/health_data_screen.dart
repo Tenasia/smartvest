@@ -12,6 +12,7 @@ class HealthDataScreen extends StatefulWidget {
 class _HealthDataScreenState extends State<HealthDataScreen> {
   List<HealthDataPoint> _healthData = [];
   String _statusMessage = 'Initializing...';
+  bool _isLoading = false;
 
   final health = Health();
   static final types = [
@@ -29,21 +30,34 @@ class _HealthDataScreenState extends State<HealthDataScreen> {
   }
 
   Future<void> fetchData() async {
-    await health.configure();
+    if (!mounted) return;
+    setState(() {
+      _isLoading = true;
+      _statusMessage = 'Requesting permissions...';
+    });
 
+    // Request Activity Recognition permission first.
     final activityPermissionStatus = await Permission.activityRecognition.request();
-    if (!mounted || activityPermissionStatus != PermissionStatus.granted) {
-      setState(() {
-        _statusMessage = 'Activity Recognition permission is required.';
-      });
+    if (activityPermissionStatus != PermissionStatus.granted) {
+      if (mounted) {
+        setState(() {
+          _statusMessage = 'Activity Recognition permission is required to fetch health data.';
+          _isLoading = false;
+        });
+      }
       return;
     }
 
+    // Now, request Health Connect permissions.
     final permissions = types.map((e) => HealthDataAccess.READ).toList();
     bool requested = await health.requestAuthorization(types, permissions: permissions);
 
-    // **BUG FIX HERE**
     if (requested) {
+      if (mounted) {
+        setState(() {
+          _statusMessage = 'Fetching data...';
+        });
+      }
       try {
         final now = DateTime.now();
         final lastWeek = now.subtract(const Duration(days: 7));
@@ -60,7 +74,7 @@ class _HealthDataScreenState extends State<HealthDataScreen> {
             if (_healthData.isEmpty) {
               _statusMessage = 'No data found for the last 7 days.';
             } else {
-              _statusMessage = '';
+              _statusMessage = ''; // Clear status if data is found
             }
           });
         }
@@ -77,6 +91,12 @@ class _HealthDataScreenState extends State<HealthDataScreen> {
           _statusMessage = 'Health Connect permissions were not granted.';
         });
       }
+    }
+
+    if (mounted) {
+      setState(() {
+        _isLoading = false;
+      });
     }
   }
 
@@ -95,12 +115,19 @@ class _HealthDataScreenState extends State<HealthDataScreen> {
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh),
-            onPressed: fetchData,
+            onPressed: _isLoading ? null : fetchData,
           ),
         ],
       ),
-      body: _statusMessage.isNotEmpty
-          ? Center(child: Text(_statusMessage, textAlign: TextAlign.center))
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : _statusMessage.isNotEmpty
+          ? Center(
+        child: Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: Text(_statusMessage, textAlign: TextAlign.center),
+        ),
+      )
           : ListView.builder(
         itemCount: _healthData.length,
         itemBuilder: (_, index) {
@@ -108,7 +135,8 @@ class _HealthDataScreenState extends State<HealthDataScreen> {
           return ListTile(
             title: Text(
                 "${p.typeString}: ${_formatValue(p)} ${p.unitString ?? ''}"),
-            subtitle: Text('From: ${p.dateFrom}'),
+            trailing: Text(p.sourceName ?? 'N/A'),
+            subtitle: Text('From: ${p.dateFrom.toLocal()}'),
           );
         },
       ),

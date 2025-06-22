@@ -8,13 +8,14 @@ import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
+
 // --- Style Constants ---
 const Color _screenBgColor = Color(0xFFF5F5F5);
 const Color _cardBgColor = Colors.white;
 const Color _primaryTextColor = Color(0xFF333333);
 const Color _secondaryTextColor = Color(0xFF757575);
 const Color _accentColorBlue = Color(0xFF007AFF);
-const Color _heartRateColor = Color(0xFFF25C54);
+const Color _oxygenColor = Color(0xFF27AE60);
 const Color _aiSummaryIconColor = Color(0xFF9B59B6);
 
 final BorderRadius _cardBorderRadius = BorderRadius.circular(12.0);
@@ -24,21 +25,21 @@ const double _cardElevation = 1.5;
 const TextStyle _generalCardTitleStyle = TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: _primaryTextColor);
 const TextStyle _summaryLabelStyle = TextStyle(fontSize: 12, color: _secondaryTextColor);
 const TextStyle _summaryValueStyle = TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: _primaryTextColor);
-const TextStyle _currentHrValueStyle = TextStyle(fontSize: 36, fontWeight: FontWeight.bold, color: _primaryTextColor);
-const TextStyle _currentHrUnitStyle = TextStyle(fontSize: 16, color: _secondaryTextColor);
-const TextStyle _currentHrTimeStyle = TextStyle(fontSize: 12, color: _secondaryTextColor);
+const TextStyle _currentValueStyle = TextStyle(fontSize: 36, fontWeight: FontWeight.bold, color: _primaryTextColor);
+const TextStyle _currentUnitStyle = TextStyle(fontSize: 16, color: _secondaryTextColor);
+const TextStyle _currentTimeStyle = TextStyle(fontSize: 12, color: _secondaryTextColor);
 const TextStyle _chartAxisLabelStyle = TextStyle(fontSize: 10, color: _secondaryTextColor);
 const TextStyle _cardTitleStyle = TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: _secondaryTextColor);
 
 
-class HeartRateScreen extends StatefulWidget {
-  const HeartRateScreen({super.key});
+class OxygenSaturationScreen extends StatefulWidget {
+  const OxygenSaturationScreen({super.key});
 
   @override
-  State<HeartRateScreen> createState() => _HeartRateScreenState();
+  State<OxygenSaturationScreen> createState() => _OxygenSaturationScreenState();
 }
 
-class _HeartRateScreenState extends State<HeartRateScreen> {
+class _OxygenSaturationScreenState extends State<OxygenSaturationScreen> {
   final HealthService _healthService = HealthService();
   final GeminiService _geminiService = GeminiService();
   int _selectedSegment = 0; // 0: Day, 1: Week, 2: Month
@@ -68,7 +69,7 @@ class _HeartRateScreenState extends State<HeartRateScreen> {
       default: startTime = DateTime(now.year, now.month, now.day);
     }
 
-    final points = await _healthService.getHealthData(startTime, now, HealthDataType.HEART_RATE);
+    final points = await _healthService.getHealthData(startTime, now, HealthDataType.BLOOD_OXYGEN);
 
     double? min, max;
     double sum = 0;
@@ -104,7 +105,7 @@ class _HeartRateScreenState extends State<HeartRateScreen> {
         }
       }
 
-      _geminiService.getHealthSummary("Heart Rate", _dataPoints, userAge).then((summary) {
+      _geminiService.getHealthSummary("Blood Oxygen (SpO2)", _dataPoints, userAge).then((summary) {
         if(mounted) setState(() => _aiSummary = summary);
       });
 
@@ -135,9 +136,9 @@ class _HeartRateScreenState extends State<HeartRateScreen> {
     );
   }
 
-  Widget _buildCurrentHeartRateCard() {
+  Widget _buildCurrentSpo2Card() {
     final latestPoint = _stats.latest;
-    final bpm = latestPoint != null ? (latestPoint.value as NumericHealthValue).numericValue.toStringAsFixed(0) : "--";
+    final spo2 = latestPoint != null ? (latestPoint.value as NumericHealthValue).numericValue.toStringAsFixed(0) : "--";
     final time = latestPoint != null ? DateFormat('MMM d, hh:mm a').format(latestPoint.dateFrom.toLocal()) : "--";
 
     return Card(
@@ -149,7 +150,7 @@ class _HeartRateScreenState extends State<HeartRateScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text("Latest Heart Rate", style: _generalCardTitleStyle),
+            const Text("Latest SpO2 Reading", style: _generalCardTitleStyle),
             const SizedBox(height: 12),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -158,12 +159,12 @@ class _HeartRateScreenState extends State<HeartRateScreen> {
               children: [
                 RichText(
                   text: TextSpan(
-                    text: bpm,
-                    style: _currentHrValueStyle,
-                    children: const <TextSpan>[TextSpan(text: ' BPM', style: _currentHrUnitStyle)],
+                    text: spo2,
+                    style: _currentValueStyle,
+                    children: const <TextSpan>[TextSpan(text: ' %', style: _currentUnitStyle)],
                   ),
                 ),
-                Text(time, style: _currentHrTimeStyle),
+                Text(time, style: _currentTimeStyle),
               ],
             ),
           ],
@@ -220,26 +221,18 @@ class _HeartRateScreenState extends State<HeartRateScreen> {
       return FlSpot(xValue, value);
     }).toList();
 
-    // THIS IS THE FIX: Safely calculate the interval for the chart labels.
-    double? bottomTitleInterval;
-    if (_dataPoints.length > 1) {
-      final timeRange = _dataPoints.last.dateFrom.millisecondsSinceEpoch - _dataPoints.first.dateFrom.millisecondsSinceEpoch;
-      if (timeRange > 0) {
-        bottomTitleInterval = timeRange / 4; // Attempt to show 4 labels
-      }
-    }
-    // If interval is null (due to < 2 points or 0 time range), fl_chart uses a sensible default.
-
     return LineChart(
       LineChartData(
+        minY: 85,
+        maxY: 100,
         lineBarsData: [
           LineChartBarData(
             spots: spots,
             isCurved: true,
-            color: _heartRateColor,
+            color: _oxygenColor,
             barWidth: 2,
             dotData: const FlDotData(show: false),
-            belowBarData: BarAreaData(show: true, color: _heartRateColor.withOpacity(0.1)),
+            belowBarData: BarAreaData(show: true, color: _oxygenColor.withOpacity(0.1)),
           ),
         ],
         titlesData: FlTitlesData(
@@ -247,7 +240,7 @@ class _HeartRateScreenState extends State<HeartRateScreen> {
             final date = DateTime.fromMillisecondsSinceEpoch(value.toInt());
             String text = (_selectedSegment == 0) ? DateFormat.Hm().format(date) : DateFormat.Md().format(date);
             return SideTitleWidget(axisSide: meta.axisSide, child: Text(text, style: _chartAxisLabelStyle));
-          }, interval: bottomTitleInterval)), // Use the safe interval
+          }, interval: (_dataPoints.last.dateFrom.millisecondsSinceEpoch - _dataPoints.first.dateFrom.millisecondsSinceEpoch) / 4)),
           leftTitles: const AxisTitles(sideTitles: SideTitles(showTitles: true, reservedSize: 40)),
           topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
           rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
@@ -258,7 +251,7 @@ class _HeartRateScreenState extends State<HeartRateScreen> {
     );
   }
 
-  Widget _buildHeartRateGraphCard() {
+  Widget _buildGraphCard() {
     return Card(
       elevation: _cardElevation,
       shape: RoundedRectangleBorder(borderRadius: _cardBorderRadius),
@@ -275,9 +268,9 @@ class _HeartRateScreenState extends State<HeartRateScreen> {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceAround,
               children: [
-                _buildSummaryStatItem(_stats.max?.toStringAsFixed(0) ?? '--', "Maximum BPM"),
-                _buildSummaryStatItem(_stats.min?.toStringAsFixed(0) ?? '--', "Minimum BPM"),
-                _buildSummaryStatItem(_stats.avg?.toStringAsFixed(0) ?? '--', "Average BPM"),
+                _buildSummaryStatItem(_stats.max?.toStringAsFixed(0) ?? '--', "Maximum SpO2"),
+                _buildSummaryStatItem(_stats.min?.toStringAsFixed(0) ?? '--', "Minimum SpO2"),
+                _buildSummaryStatItem(_stats.avg?.toStringAsFixed(0) ?? '--', "Average SpO2"),
               ],
             ),
           ],
@@ -291,7 +284,7 @@ class _HeartRateScreenState extends State<HeartRateScreen> {
     return Scaffold(
       backgroundColor: _screenBgColor,
       appBar: AppBar(
-        title: const Text('Heart Rate Details', style: TextStyle(color: _primaryTextColor)),
+        title: const Text('Blood Oxygen Details', style: TextStyle(color: _primaryTextColor)),
         backgroundColor: _screenBgColor,
         elevation: 0,
         iconTheme: const IconThemeData(color: _primaryTextColor),
@@ -301,9 +294,9 @@ class _HeartRateScreenState extends State<HeartRateScreen> {
           : ListView(
         padding: const EdgeInsets.all(16.0),
         children: <Widget>[
-          _buildCurrentHeartRateCard(),
-          _buildHeartRateGraphCard(),
-          _buildSummaryCard("AI HEART RATE SUMMARY", _aiSummary, Icons.auto_awesome, _aiSummaryIconColor),
+          _buildCurrentSpo2Card(),
+          _buildGraphCard(),
+          _buildSummaryCard("AI BLOOD OXYGEN SUMMARY", _aiSummary, Icons.auto_awesome, _aiSummaryIconColor),
         ],
       ),
     );

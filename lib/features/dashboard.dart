@@ -5,7 +5,8 @@ import 'package:smartvest/features/home.dart';
 import 'package:smartvest/features/calendar.dart';
 import 'package:smartvest/features/notifications.dart';
 import 'package:smartvest/features/profile/profile_screen.dart';
-import 'package:smartvest/features/health_data_screen.dart'; // <-- 1. IMPORT THE NEW SCREEN
+// The HealthDataScreen is no longer needed here
+// import 'package:smartvest/features/health_data_screen.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -16,13 +17,12 @@ class DashboardScreen extends StatefulWidget {
 
 class _DashboardScreenState extends State<DashboardScreen> {
   int _selectedIndex = 0;
-  // List of pages corresponding to the bottom navigation items.
+  // UPDATED: Removed HealthDataScreen from the list of pages.
   final List<Widget> _pages = [
     const HomeScreen(),           // Index 0: Home
     const CalendarScreen(),       // Index 1: Calendar
     const NotificationsScreen(),  // Index 2: Notifications
-    const HealthDataScreen(),     // <-- 2. ADD THE SCREEN TO THE LIST
-    const ProfileScreen(),        // Index 4: Profile
+    const ProfileScreen(),        // Index 3: Profile (previously 4)
   ];
 
   @override
@@ -39,15 +39,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
       barrierDismissible: false,
       builder: (BuildContext context) {
         return AlertDialog(
-          title: Text("Important Disclaimer"),
-          content: SingleChildScrollView(
+          title: const Text("Important Disclaimer"),
+          content: const SingleChildScrollView(
             child: Text(
                 "The data provided by SmartVest is for reference and informational purposes only and is not intended for clinical or medical diagnostic use. Please consult with a healthcare professional for any health concerns or before making any decisions related to your health. User discretion is advised for the data gathered."
             ),
           ),
           actions: <Widget>[
             TextButton(
-              child: Text("I Understand"),
+              child: const Text("I Understand"),
               onPressed: () {
                 Navigator.of(context).pop();
               },
@@ -69,6 +69,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     return Scaffold(
       body: _pages[_selectedIndex],
       bottomNavigationBar: BottomNavigationBar(
+        // UPDATED: Removed the "Health" item from the navigation bar.
         items: const <BottomNavigationBarItem>[
           BottomNavigationBarItem(
             icon: Icon(Icons.home),
@@ -83,21 +84,16 @@ class _DashboardScreenState extends State<DashboardScreen> {
             icon: Icon(Icons.notifications),
             label: 'Notifications',
           ),
-          // 3. ADD THE NEW NAVIGATION ITEM HERE
-          BottomNavigationBarItem(
-            icon: Icon(Icons.favorite), // An icon for health data
-            label: 'Health',
-          ),
           BottomNavigationBarItem(
             icon: Icon(Icons.person),
             label: 'Profile',
           ),
         ],
         currentIndex: _selectedIndex,
-        selectedItemColor: Colors.blue,
+        selectedItemColor: Colors.blueAccent,
         unselectedItemColor: Colors.grey,
         onTap: _onItemTapped,
-        type: BottomNavigationBarType.fixed, // Recommended for 4+ items
+        type: BottomNavigationBarType.fixed,
       ),
     );
   }

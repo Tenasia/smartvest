@@ -1,34 +1,15 @@
 import 'package:flutter/material.dart';
+import 'package:health/health.dart';
+import 'package:smartvest/core/services/health_service.dart';
 import 'package:table_calendar/table_calendar.dart';
-import 'package:intl/intl.dart'; // For date formatting
+import 'package:intl/intl.dart';
 
-// Mock data structures (assuming these are defined as in the previous version)
-class DailySummary {
-  final double avgHeartRate;
-  final String avgStressLevel;
-  final double avgPostureScore; // 0.0 to 1.0
-  final int sleepDurationHours; // in hours
+// A new data class to hold the summarized stats for a single day.
+class DailyHealthSummary {
+  final HealthStats heartRateStats;
+  final HealthStats spo2Stats;
 
-  DailySummary({
-    required this.avgHeartRate,
-    required this.avgStressLevel,
-    required this.avgPostureScore,
-    required this.sleepDurationHours,
-  });
-}
-
-class DeviationDetails {
-  final String heartRateDetails;
-  final String stressDetails;
-  final String postureDetails;
-  final String sleepDetails;
-
-  DeviationDetails({
-    required this.heartRateDetails,
-    required this.stressDetails,
-    required this.postureDetails,
-    required this.sleepDetails,
-  });
+  DailyHealthSummary({required this.heartRateStats, required this.spo2Stats});
 }
 
 class CalendarScreen extends StatefulWidget {
@@ -39,66 +20,87 @@ class CalendarScreen extends StatefulWidget {
 }
 
 class _CalendarScreenState extends State<CalendarScreen> {
-  CalendarFormat _calendarFormat = CalendarFormat.month; // Default format
+  final HealthService _healthService = HealthService();
+
+  // Holds the fetched and processed data for each day.
+  final Map<DateTime, DailyHealthSummary> _healthDataMap = {};
+
+  CalendarFormat _calendarFormat = CalendarFormat.month;
   DateTime _focusedDay = DateTime.now();
   DateTime? _selectedDay;
-  DateTime? _dayForDetails;
-
-  // Mock data (same as your previous version)
-  final Map<DateTime, DailySummary> _mockSummaries = {
-    DateTime.utc(DateTime.now().year, DateTime.now().month, DateTime.now().day - 2): DailySummary(
-      avgHeartRate: 75.0, avgStressLevel: "Low", avgPostureScore: 0.85, sleepDurationHours: 7,
-    ),
-    DateTime.utc(DateTime.now().year, DateTime.now().month, DateTime.now().day - 1): DailySummary(
-      avgHeartRate: 82.0, avgStressLevel: "Moderate", avgPostureScore: 0.70, sleepDurationHours: 6,
-    ),
-    DateTime.utc(DateTime.now().year, DateTime.now().month, DateTime.now().day): DailySummary(
-      avgHeartRate: 78.0, avgStressLevel: "Low", avgPostureScore: 0.90, sleepDurationHours: 8,
-    ),
-  };
-
-  final Map<DateTime, DeviationDetails> _mockDeviations = {
-    DateTime.utc(DateTime.now().year, DateTime.now().month, DateTime.now().day - 2): DeviationDetails(
-        heartRateDetails: "Peak at 110bpm during morning walk. Min 60bpm during sleep.",
-        stressDetails: "One high stress event detected around 3 PM.",
-        postureDetails: "Maintained good posture 85% of the time. 5 slouching alerts.",
-        sleepDetails: "Deep sleep: 3 hours, Light sleep: 4 hours. Woke up once."
-    ),
-    DateTime.utc(DateTime.now().year, DateTime.now().month, DateTime.now().day - 1): DeviationDetails(
-        heartRateDetails: "Slightly elevated average. Max 120bpm during a stressful meeting.",
-        stressDetails: "Moderate stress levels throughout the afternoon. 3 stress spikes.",
-        postureDetails: "Posture score dropped to 70%. 12 slouching alerts, mainly in the evening.",
-        sleepDetails: "Interrupted sleep. Deep sleep: 2 hours."
-    ),
-    DateTime.utc(DateTime.now().year, DateTime.now().month, DateTime.now().day): DeviationDetails(
-        heartRateDetails: "Stable heart rate. Range: 65bpm - 100bpm.",
-        stressDetails: "Minimal stress. GSR levels remained stable.",
-        postureDetails: "Excellent posture (90%). Only 2 minor slouching alerts.",
-        sleepDetails: "Good quality sleep. Deep sleep: 4 hours."
-    ),
-  };
-
-  DailySummary? _selectedDaySummary;
-  DeviationDetails? _selectedDayDeviationDetails;
+  DailyHealthSummary? _selectedDaySummary;
+  bool _isLoading = false;
 
   @override
   void initState() {
     super.initState();
     _selectedDay = _focusedDay;
-    _loadDataForSelectedDay(_selectedDay!);
+    // Fetch data for the initial month when the screen loads.
+    _fetchDataForMonth(_focusedDay);
   }
 
-  void _loadDataForSelectedDay(DateTime day) {
-    final normalizedDay = DateTime.utc(day.year, day.month, day.day);
+  /// Fetches all heart rate and SpO2 data for the entire month of the given day,
+  /// processes it, and stores it in the `_healthDataMap`.
+  Future<void> _fetchDataForMonth(DateTime month) async {
     if (!mounted) return;
-    setState(() {
-      _selectedDaySummary = _mockSummaries[normalizedDay];
-      if (_dayForDetails == normalizedDay) {
-        _selectedDayDeviationDetails = _mockDeviations[normalizedDay];
-      } else {
-        _selectedDayDeviationDetails = null;
-      }
-    });
+    setState(() { _isLoading = true; });
+
+    final firstDayOfMonth = DateTime(month.year, month.month, 1);
+    final lastDayOfMonth = DateTime(month.year, month.month + 1, 0);
+
+    // Fetch both data types in parallel for efficiency.
+    final List<List<HealthDataPoint>> results = await Future.wait([
+      _healthService.getHealthData(firstDayOfMonth, lastDayOfMonth, HealthDataType.HEART_RATE),
+      _healthService.getHealthData(firstDayOfMonth, lastDayOfMonth, HealthDataType.BLOOD_OXYGEN),
+    ]);
+
+    final heartRateData = results[0];
+    final spo2Data = results[1];
+
+    // Group data by day.
+    final Map<DateTime, List<HealthDataPoint>> dailyHrData = {};
+    for (var p in heartRateData) {
+      final day = DateTime.utc(p.dateFrom.year, p.dateFrom.month, p.dateFrom.day);
+      dailyHrData.putIfAbsent(day, () => []).add(p);
+    }
+
+    final Map<DateTime, List<HealthDataPoint>> dailySpo2Data = {};
+    for (var p in spo2Data) {
+      final day = DateTime.utc(p.dateFrom.year, p.dateFrom.month, p.dateFrom.day);
+      dailySpo2Data.putIfAbsent(day, () => []).add(p);
+    }
+
+    // Process each day's data into a summary.
+    final Set<DateTime> allDays = {...dailyHrData.keys, ...dailySpo2Data.keys};
+    for (var day in allDays) {
+      _healthDataMap[day] = DailyHealthSummary(
+        heartRateStats: _calculateStats(dailyHrData[day] ?? []),
+        spo2Stats: _calculateStats(dailySpo2Data[day] ?? []),
+      );
+    }
+
+    if (mounted) {
+      setState(() {
+        _isLoading = false;
+        // After fetching, update the summary for the currently selected day.
+        _updateSelectedDaySummary(_selectedDay!);
+      });
+    }
+  }
+
+  /// Helper function to calculate stats from a list of data points.
+  HealthStats _calculateStats(List<HealthDataPoint> points) {
+    if (points.isEmpty) return HealthStats();
+
+    double? min, max;
+    double sum = 0;
+    for (var p in points) {
+      final value = (p.value as NumericHealthValue).numericValue.toDouble();
+      sum += value;
+      if (min == null || value < min) min = value;
+      if (max == null || value > max) max = value;
+    }
+    return HealthStats(min: min, max: max, avg: sum / points.length);
   }
 
   void _onDaySelected(DateTime selectedDay, DateTime focusedDay) {
@@ -107,23 +109,17 @@ class _CalendarScreenState extends State<CalendarScreen> {
       setState(() {
         _selectedDay = selectedDay;
         _focusedDay = focusedDay;
-        _dayForDetails = null;
-        _selectedDayDeviationDetails = null;
       });
-      _loadDataForSelectedDay(selectedDay);
-    } else {
-      if (!mounted) return;
-      setState(() {
-        if (_dayForDetails == selectedDay) {
-          _dayForDetails = null;
-          _selectedDayDeviationDetails = null;
-        } else {
-          _dayForDetails = selectedDay;
-          final normalizedDay = DateTime.utc(selectedDay.year, selectedDay.month, selectedDay.day);
-          _selectedDayDeviationDetails = _mockDeviations[normalizedDay];
-        }
-      });
+      _updateSelectedDaySummary(selectedDay);
     }
+  }
+
+  /// Updates the summary display based on the data in our map.
+  void _updateSelectedDaySummary(DateTime day) {
+    final normalizedDay = DateTime.utc(day.year, day.month, day.day);
+    setState(() {
+      _selectedDaySummary = _healthDataMap[normalizedDay];
+    });
   }
 
   @override
@@ -131,6 +127,13 @@ class _CalendarScreenState extends State<CalendarScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Daily Health Calendar'),
+        actions: [
+          if (_isLoading)
+            const Padding(
+              padding: EdgeInsets.only(right: 16.0),
+              child: Center(child: SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))),
+            )
+        ],
       ),
       body: Column(
         children: [
@@ -139,27 +142,38 @@ class _CalendarScreenState extends State<CalendarScreen> {
             lastDay: DateTime.utc(2030, 12, 31),
             focusedDay: _focusedDay,
             calendarFormat: _calendarFormat,
-            availableCalendarFormats: const {
-              CalendarFormat.month: 'Month',
-              CalendarFormat.twoWeeks: '2 Weeks',
-              CalendarFormat.week: 'Week',
-            },
             selectedDayPredicate: (day) => isSameDay(_selectedDay, day),
             onDaySelected: _onDaySelected,
             onFormatChanged: (format) {
-              if (_calendarFormat != format) {
-                if (!mounted) return;
-                setState(() {
-                  _calendarFormat = format;
-                });
-              }
+              if (_calendarFormat != format) setState(() => _calendarFormat = format);
             },
             onPageChanged: (focusedDay) {
-              if (!mounted) return;
-              setState(() {
-                _focusedDay = focusedDay;
-              });
+              _focusedDay = focusedDay;
+              // Fetch data for the new month if we haven't already.
+              _fetchDataForMonth(focusedDay);
             },
+            // Load events (markers) for days that have data in our map.
+            eventLoader: (day) {
+              final normalizedDay = DateTime.utc(day.year, day.month, day.day);
+              if (_healthDataMap.containsKey(normalizedDay)) {
+                return ['data_available'];
+              }
+              return [];
+            },
+            calendarBuilders: CalendarBuilders(
+              markerBuilder: (context, day, events) {
+                if (events.isNotEmpty) {
+                  return Positioned(
+                    right: 1, bottom: 1,
+                    child: Container(
+                      decoration: BoxDecoration(shape: BoxShape.circle, color: Colors.blueAccent[400]),
+                      width: 7.0, height: 7.0,
+                    ),
+                  );
+                }
+                return null;
+              },
+            ),
             headerStyle: HeaderStyle(
               titleTextStyle: const TextStyle(fontSize: 18.0, fontWeight: FontWeight.bold),
               formatButtonTextStyle: const TextStyle().copyWith(color: Colors.white),
@@ -167,8 +181,6 @@ class _CalendarScreenState extends State<CalendarScreen> {
                 color: Theme.of(context).primaryColorDark,
                 borderRadius: BorderRadius.circular(20.0),
               ),
-              // THIS IS THE KEY CHANGE: The button will now show the CURRENT format.
-              // When tapped, it still cycles to the next available format.
               formatButtonShowsNext: false,
             ),
             calendarStyle: CalendarStyle(
@@ -180,25 +192,6 @@ class _CalendarScreenState extends State<CalendarScreen> {
                 color: Theme.of(context).primaryColor.withOpacity(0.5),
                 shape: BoxShape.circle,
               ),
-            ),
-            eventLoader: (day) {
-              final normalizedDay = DateTime.utc(day.year, day.month, day.day);
-              if (_mockSummaries.containsKey(normalizedDay)) {
-                return ['summary_available'];
-              }
-              return [];
-            },
-            calendarBuilders: CalendarBuilders(
-              markerBuilder: (context, day, events) {
-                if (events.isNotEmpty) {
-                  return Positioned(
-                    right: 1,
-                    bottom: 1,
-                    child: _buildEventsMarker(day, events),
-                  );
-                }
-                return null;
-              },
             ),
           ),
           const SizedBox(height: 8.0),
@@ -213,27 +206,12 @@ class _CalendarScreenState extends State<CalendarScreen> {
     );
   }
 
-  Widget _buildEventsMarker(DateTime day, List events) {
-    return Container(
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        color: Colors.orangeAccent[400],
-      ),
-      width: 7.0,
-      height: 7.0,
-      margin: const EdgeInsets.symmetric(horizontal: 1.5),
-    );
-  }
-
   Widget _buildSelectedDayData() {
     if (_selectedDay == null) {
       return const Center(child: Text("Select a day to see details."));
     }
     final String formattedDate = DateFormat.yMMMMd().format(_selectedDay!);
 
-    if (_dayForDetails != null && _selectedDayDeviationDetails != null) {
-      return _buildDeviationDetailsCard(_selectedDayDeviationDetails!, formattedDate);
-    }
     if (_selectedDaySummary != null) {
       return _buildSummaryCard(_selectedDaySummary!, formattedDate);
     } else {
@@ -246,7 +224,10 @@ class _CalendarScreenState extends State<CalendarScreen> {
             children: [
               Text(formattedDate, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
               const Divider(height: 20),
-              const Text("Not enough data to summarize for this day.", style: TextStyle(fontSize: 16, color: Colors.grey)),
+              Text(
+                  _isLoading ? "Loading data..." : "No health data recorded for this day.",
+                  style: const TextStyle(fontSize: 16, color: Colors.grey)
+              ),
             ],
           ),
         ),
@@ -254,7 +235,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
     }
   }
 
-  Widget _buildSummaryCard(DailySummary summary, String formattedDate) {
+  Widget _buildSummaryCard(DailyHealthSummary summary, String formattedDate) {
     return Card(
       elevation: 4,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -265,60 +246,22 @@ class _CalendarScreenState extends State<CalendarScreen> {
           children: [
             Text("Summary for: $formattedDate", style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.blueAccent)),
             const Divider(height: 24, thickness: 1),
-            _buildStatRow(Icons.favorite, "Avg. Heart Rate:", "${summary.avgHeartRate.toStringAsFixed(0)} bpm"),
-            _buildStatRow(Icons.sentiment_satisfied, "Avg. Stress Level:", summary.avgStressLevel),
-            _buildStatRow(Icons.accessibility_new, "Avg. Posture Score:", "${(summary.avgPostureScore * 100).toStringAsFixed(0)}%"),
-            _buildStatRow(Icons.bedtime, "Sleep Duration:", "${summary.sleepDurationHours} hours"),
-            const SizedBox(height: 16),
-            Center(
-              child: ElevatedButton(
-                onPressed: () {
-                  if (!mounted) return;
-                  setState(() {
-                    _dayForDetails = _selectedDay;
-                    final normalizedDay = DateTime.utc(_selectedDay!.year, _selectedDay!.month, _selectedDay!.day);
-                    _selectedDayDeviationDetails = _mockDeviations[normalizedDay];
-                  });
-                },
-                style: ElevatedButton.styleFrom(backgroundColor: Colors.blueAccent),
-                child: const Text("View Deviation Details", style: TextStyle(color: Colors.white)),
-              ),
-            )
-          ],
-        ),
-      ),
-    );
-  }
 
-  Widget _buildDeviationDetailsCard(DeviationDetails details, String formattedDate) {
-    return Card(
-      elevation: 4,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      child: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text("Deviation Details for: $formattedDate", style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.deepOrangeAccent)),
-            const Divider(height: 24, thickness: 1),
-            _buildDetailItem("Heart Rate Deviations:", details.heartRateDetails),
-            _buildDetailItem("Stress Event Details:", details.stressDetails),
-            _buildDetailItem("Posture Correction Log:", details.postureDetails),
-            _buildDetailItem("Sleep Pattern Notes:", details.sleepDetails),
+            // Heart Rate Section
+            const Text("Heart Rate (BPM)", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+            _buildStatRow(Icons.favorite, "Average:", summary.heartRateStats.avg?.toStringAsFixed(0) ?? 'N/A'),
+            _buildStatRow(Icons.arrow_downward, "Minimum:", summary.heartRateStats.min?.toStringAsFixed(0) ?? 'N/A'),
+            _buildStatRow(Icons.arrow_upward, "Maximum:", summary.heartRateStats.max?.toStringAsFixed(0) ?? 'N/A'),
+
             const SizedBox(height: 16),
-            Center(
-              child: ElevatedButton(
-                onPressed: () {
-                  if (!mounted) return;
-                  setState(() {
-                    _dayForDetails = null;
-                    _selectedDayDeviationDetails = null;
-                  });
-                },
-                style: ElevatedButton.styleFrom(backgroundColor: Colors.grey[700]),
-                child: const Text("Back to Summary", style: TextStyle(color: Colors.white)),
-              ),
-            )
+            const Divider(),
+            const SizedBox(height: 16),
+
+            // SpO2 Section
+            const Text("Blood Oxygen (SpO2)", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+            _buildStatRow(Icons.bloodtype, "Average:", "${summary.spo2Stats.avg?.toStringAsFixed(0) ?? 'N/A'}%"),
+            _buildStatRow(Icons.arrow_downward, "Minimum:", "${summary.spo2Stats.min?.toStringAsFixed(0) ?? 'N/A'}%"),
+            _buildStatRow(Icons.arrow_upward, "Maximum:", "${summary.spo2Stats.max?.toStringAsFixed(0) ?? 'N/A'}%"),
           ],
         ),
       ),
@@ -332,7 +275,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
         children: [
           Icon(icon, color: Colors.blueGrey, size: 20),
           const SizedBox(width: 12),
-          Text("$label ", style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w500)),
+          Text(label, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w500)),
           Expanded(
             child: Text(
               value,
@@ -340,20 +283,6 @@ class _CalendarScreenState extends State<CalendarScreen> {
               textAlign: TextAlign.end,
             ),
           ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildDetailItem(String title, String detail) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8.0),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(title, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.black87)),
-          const SizedBox(height: 4),
-          Text(detail, style: const TextStyle(fontSize: 14, color: Colors.black54, height: 1.4)),
         ],
       ),
     );

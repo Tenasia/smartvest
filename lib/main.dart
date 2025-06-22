@@ -1,83 +1,78 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:smartvest/config/app_routes.dart';
-import 'features/auth/login.dart'; // Ensure LoginScreen is imported if it's your initial screen
+import 'features/auth/login.dart'; // Ensure LoginScreen is imported
 import 'firebase_options.dart';
 
 void main() async {
-  WidgetsFlutterBinding.ensureInitialized();
-
-  await Firebase.initializeApp(
-    options: DefaultFirebaseOptions.currentPlatform,
-  );
-  runApp(const MyApp());
+  // This is the core of the fix. We wrap the initialization in a try-catch block.
+  try {
+    WidgetsFlutterBinding.ensureInitialized();
+    await Firebase.initializeApp(
+      options: DefaultFirebaseOptions.currentPlatform,
+    );
+    // If Firebase initializes successfully, run the main app.
+    runApp(const MyApp());
+  } catch (e) {
+    // If an error occurs during initialization, run an error screen instead.
+    // This prevents the white screen crash.
+    print("Failed to initialize Firebase: $e");
+    runApp(ErrorApp(errorMessage: e.toString()));
+  }
 }
 
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
 
-  // This widget is the root of your application.
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Flutter Demo',
-      initialRoute: AppRoutes.login, // Or your actual initial route
+      title: 'SmartVest',
+      initialRoute: AppRoutes.login, // Your initial route
       routes: AppRoutes.routes,
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
+        useMaterial3: true,
       ),
-      // Directly navigate to LoginScreen or your app's main entry point
-      // before the dashboard. The disclaimer will be handled by DashboardScreen.
-      home: LoginScreen(), // Or your main entry point like MyHomePage if appropriate
+      // The 'home' property is redundant when 'initialRoute' is used,
+      // but we'll leave it pointing to LoginScreen as a fallback.
+      home: const LoginScreen(),
     );
   }
 }
 
-// REMOVE THE Initializer and _InitializerState classes from here.
-// The MyHomePage and _MyHomePageState classes can remain if they are used elsewhere,
-// or be removed if Initializer was their only entry point.
-
-class MyHomePage extends StatefulWidget {
-  const MyHomePage({super.key, required this.title});
-
-  final String title;
-
-  @override
-  State<MyHomePage> createState() => _MyHomePageState();
-}
-
-class _MyHomePageState extends State<MyHomePage> {
-  int _counter = 0;
-
-  void _incrementCounter() {
-    setState(() {
-      _counter++;
-    });
-  }
+// A simple widget to display an error message if the app fails to start.
+class ErrorApp extends StatelessWidget {
+  final String errorMessage;
+  const ErrorApp({super.key, required this.errorMessage});
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
-        title: Text(widget.title),
-      ),
-      body: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: <Widget>[
-            const Text('You have pushed the button this many times:'),
-            Text(
-              '$_counter',
-              style: Theme.of(context).textTheme.headlineMedium,
+    return MaterialApp(
+      home: Scaffold(
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(Icons.error_outline, color: Colors.red, size: 50),
+                const SizedBox(height: 16),
+                const Text(
+                  'Application Failed to Start',
+                  style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'There was an error during initialization. Please check your connection or configuration and restart the app.\n\nError: $errorMessage',
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(color: Colors.grey),
+                ),
+              ],
             ),
-          ],
+          ),
         ),
-      ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _incrementCounter,
-        tooltip: 'Increment',
-        child: const Icon(Icons.add),
       ),
     );
   }
