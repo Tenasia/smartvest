@@ -8,6 +8,10 @@ import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
+// --- Caching for AI Summary ---
+String _cachedSpo2Summary = "Generating summary...";
+DateTime? _lastSpo2SummaryTimestamp;
+
 
 // --- Style Constants ---
 const Color _screenBgColor = Color(0xFFF5F5F5);
@@ -47,12 +51,50 @@ class _OxygenSaturationScreenState extends State<OxygenSaturationScreen> {
 
   List<HealthDataPoint> _dataPoints = [];
   HealthStats _stats = HealthStats();
-  String _aiSummary = "Generating summary...";
+  String _aiSummary = _cachedSpo2Summary; // Initialize with cached value
 
   @override
   void initState() {
     super.initState();
     _fetchDataForSegment();
+  }
+
+  Future<void> _generateAiSummary() async {
+    // ** Caching Logic: Check if a summary was generated less than an hour ago **
+    if (_lastSpo2SummaryTimestamp != null &&
+        DateTime.now().difference(_lastSpo2SummaryTimestamp!) < const Duration(hours: 1)) {
+      if (mounted) {
+        setState(() {
+          _aiSummary = _cachedSpo2Summary; // Use cached summary
+        });
+      }
+      return; // Exit without calling the API
+    }
+
+    if (_dataPoints.isEmpty) {
+      if(mounted) setState(() => _aiSummary = "Not enough data to generate a summary.");
+      return;
+    }
+
+    if (mounted) setState(() => _aiSummary = "Generating new summary...");
+
+    User? user = FirebaseAuth.instance.currentUser;
+    int? userAge;
+    if (user != null) {
+      final doc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
+      if (doc.exists && doc.data()!.containsKey('birthday')) {
+        final birthday = (doc.data()!['birthday'] as Timestamp).toDate();
+        userAge = DateTime.now().year - birthday.year;
+      }
+    }
+
+    final summary = await _geminiService.getHealthSummary("Blood Oxygen (SpO2)", _dataPoints, userAge);
+
+    // Update cache and timestamp
+    _cachedSpo2Summary = summary;
+    _lastSpo2SummaryTimestamp = DateTime.now();
+
+    if(mounted) setState(() => _aiSummary = summary);
   }
 
   Future<void> _fetchDataForSegment() async {
@@ -93,23 +135,10 @@ class _OxygenSaturationScreenState extends State<OxygenSaturationScreen> {
           avg: points.isEmpty ? 0 : sum / points.length,
           latest: points.isNotEmpty ? points.last : null,
         );
+        _isLoading = false;
       });
 
-      User? user = FirebaseAuth.instance.currentUser;
-      int? userAge;
-      if (user != null) {
-        final doc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
-        if (doc.exists && doc.data()!.containsKey('birthday')) {
-          final birthday = (doc.data()!['birthday'] as Timestamp).toDate();
-          userAge = DateTime.now().year - birthday.year;
-        }
-      }
-
-      _geminiService.getHealthSummary("Blood Oxygen (SpO2)", _dataPoints, userAge).then((summary) {
-        if(mounted) setState(() => _aiSummary = summary);
-      });
-
-      setState(() => _isLoading = false);
+      _generateAiSummary();
     }
   }
 
@@ -127,9 +156,7 @@ class _OxygenSaturationScreenState extends State<OxygenSaturationScreen> {
           children: [
             Row(children: [Icon(icon, color: iconColor, size: 20), const SizedBox(width: 8), Text(title, style: _cardTitleStyle)]),
             const SizedBox(height: 12),
-            _isLoading
-                ? const Center(child: CircularProgressIndicator())
-                : MarkdownBody(data: summary, styleSheet: MarkdownStyleSheet.fromTheme(Theme.of(context)).copyWith(p: const TextStyle(color: _primaryTextColor))),
+            MarkdownBody(data: summary, styleSheet: MarkdownStyleSheet.fromTheme(Theme.of(context)).copyWith(p: const TextStyle(color: _primaryTextColor))),
           ],
         ),
       ),
@@ -221,6 +248,14 @@ class _OxygenSaturationScreenState extends State<OxygenSaturationScreen> {
       return FlSpot(xValue, value);
     }).toList();
 
+    double? bottomTitleInterval;
+    if (_dataPoints.length > 1) {
+      final timeRange = _dataPoints.last.dateFrom.millisecondsSinceEpoch - _dataPoints.first.dateFrom.millisecondsSinceEpoch;
+      if (timeRange > 0) {
+        bottomTitleInterval = timeRange / 4;
+      }
+    }
+
     return LineChart(
       LineChartData(
         minY: 85,
@@ -240,7 +275,7 @@ class _OxygenSaturationScreenState extends State<OxygenSaturationScreen> {
             final date = DateTime.fromMillisecondsSinceEpoch(value.toInt());
             String text = (_selectedSegment == 0) ? DateFormat.Hm().format(date) : DateFormat.Md().format(date);
             return SideTitleWidget(axisSide: meta.axisSide, child: Text(text, style: _chartAxisLabelStyle));
-          }, interval: (_dataPoints.last.dateFrom.millisecondsSinceEpoch - _dataPoints.first.dateFrom.millisecondsSinceEpoch) / 4)),
+          }, interval: bottomTitleInterval)),
           leftTitles: const AxisTitles(sideTitles: SideTitles(showTitles: true, reservedSize: 40)),
           topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
           rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),

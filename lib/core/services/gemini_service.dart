@@ -2,16 +2,16 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:health/health.dart';
+import 'package:intl/intl.dart';
+
 
 class GeminiService {
   // Your actual API Key is correctly stored here.
   final String _apiKey = "AIzaSyDA03m67MzO-a012URe8LPTaQd-1toxQBE";
 
+  /// Generates a health summary from a list of HealthDataPoint objects (from Health Connect).
   Future<String> getHealthSummary(
       String metricName, List<HealthDataPoint> dataPoints, int? userAge) async {
-
-    // THIS IS THE FIX: The check now compares against the original placeholder.
-    // Since your _apiKey is different, this condition will be FALSE, and the code will proceed.
     if (_apiKey == "YOUR_GEMINI_API_KEY") {
       return "## AI Summary Disabled\n\nPlease add your Gemini API Key in `lib/core/services/gemini_service.dart` to enable this feature.";
     }
@@ -42,6 +42,44 @@ class GeminiService {
       Format the entire response in simple Markdown.
       """;
 
+    return _callGeminiAPI(prompt);
+  }
+
+  /// Generates a health summary from a raw data string (e.g., from Firebase).
+  Future<String> getSummaryFromRawString({
+    required String metricName,
+    required String dataSummary,
+    required int? userAge,
+    required String analysisInstructions,
+  }) async {
+    if (_apiKey == "YOUR_GEMINI_API_KEY") {
+      return "## AI Summary Disabled\n\nPlease add your Gemini API Key to enable this feature.";
+    }
+
+    if (dataSummary.isEmpty) {
+      return "No data available to generate a summary for $metricName.";
+    }
+
+    final prompt = """
+      You are a friendly and encouraging health assistant.
+      Analyze the following health data for a user and provide a concise, easy-to-understand summary in Markdown format.
+      The user's age is ${userAge ?? 'not provided'}.
+
+      **Metric:**
+      '$metricName'
+
+      **Data:**
+      $dataSummary
+
+      **Instructions:**
+      $analysisInstructions
+      """;
+
+    return _callGeminiAPI(prompt);
+  }
+
+  /// Private helper to handle the HTTP request to the Gemini API.
+  Future<String> _callGeminiAPI(String prompt) async {
     final url = Uri.parse(
         'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=$_apiKey');
 
@@ -60,9 +98,17 @@ class GeminiService {
       final response = await http.post(url, headers: headers, body: body);
       if (response.statusCode == 200) {
         final decodedResponse = jsonDecode(response.body);
-        final text =
-        decodedResponse['candidates'][0]['content']['parts'][0]['text'];
-        return text;
+        // Add robust checking for the response structure
+        if (decodedResponse.containsKey('candidates') &&
+            decodedResponse['candidates'] is List &&
+            decodedResponse['candidates'].isNotEmpty &&
+            decodedResponse['candidates'][0].containsKey('content') &&
+            decodedResponse['candidates'][0]['content'].containsKey('parts') &&
+            decodedResponse['candidates'][0]['content']['parts'] is List &&
+            decodedResponse['candidates'][0]['content']['parts'].isNotEmpty) {
+          return decodedResponse['candidates'][0]['content']['parts'][0]['text'];
+        }
+        return "Sorry, I received an unexpected response format from the AI.";
       } else {
         debugPrint(
             'Gemini API Error: ${response.statusCode}\n${response.body}');

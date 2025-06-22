@@ -1,11 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_database/firebase_database.dart';
+import 'dart:async';
 import 'package:smartvest/config/app_routes.dart';
 import 'package:smartvest/core/services/health_service.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:health/health.dart';
 import 'package:intl/intl.dart';
+import 'package:percent_indicator/percent_indicator.dart'; // Import for visual gauges
 
 // --- Style Constants ---
 const Color _scaffoldBgColor = Color(0xFFF5F5F5);
@@ -15,6 +18,9 @@ const Color _secondaryTextColor = Color(0xFF757575);
 const Color _primaryAppColor = Color(0xFF4A79FF);
 const Color _heartIconColor = Color(0xFFF25C54);
 const Color _oxygenIconColor = Color(0xFF27AE60);
+const Color _postureIconColor = Color(0xFF007AFF);
+const Color _stressIconColor = Color(0xFFFFA000);
+
 
 final BorderRadius _cardBorderRadius = BorderRadius.circular(12.0);
 const EdgeInsets _cardPadding = EdgeInsets.all(16.0);
@@ -24,9 +30,13 @@ const TextStyle _statValueStyle = TextStyle(fontSize: 20, fontWeight: FontWeight
 const TextStyle _statLabelStyle = TextStyle(fontSize: 12, color: _secondaryTextColor);
 const TextStyle _heartRateBPMStyle = TextStyle(fontSize: 32, fontWeight: FontWeight.bold, color: _heartIconColor);
 const TextStyle _oxygenPercentStyle = TextStyle(fontSize: 32, fontWeight: FontWeight.bold, color: _oxygenIconColor);
+const TextStyle _postureStatusStyle = TextStyle(fontSize: 32, fontWeight: FontWeight.bold, color: _postureIconColor);
+const TextStyle _stressStatusStyle = TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: _stressIconColor);
 const TextStyle _unitStyle = TextStyle(fontSize: 16, fontWeight: FontWeight.normal, color: _secondaryTextColor);
 const TextStyle _averageStyle = TextStyle(fontSize: 13, color: Color(0xFF666666));
 const TextStyle _subtleTextStyle = TextStyle(fontSize: 12, color: _secondaryTextColor);
+const TextStyle _cardTitleStyle = TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: _secondaryTextColor);
+
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -48,6 +58,10 @@ class _HomeScreenState extends State<HomeScreen> {
   HealthStats? _spo2Stats;
   List<HealthDataPoint> _spo2DataPoints = [];
 
+  // Firebase Realtime Database state
+  StreamSubscription? _healthMonitorSubscription;
+  Map<dynamic, dynamic>? _latestHealthData;
+
   bool _isLoading = true;
   String _errorMessage = '';
 
@@ -57,11 +71,18 @@ class _HomeScreenState extends State<HomeScreen> {
     _fetchAllData();
   }
 
+  @override
+  void dispose() {
+    _healthMonitorSubscription?.cancel();
+    super.dispose();
+  }
+
   Future<void> _fetchAllData() async {
     if (!mounted) return;
     setState(() { _isLoading = true; _errorMessage = ''; });
 
     await _fetchUserData();
+    _initFirebaseRealtimeListener();
 
     bool permissionsGranted = await _healthService.requestPermissions();
     if (permissionsGranted) {
@@ -85,14 +106,29 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  void _initFirebaseRealtimeListener() {
+    final databaseReference = FirebaseDatabase.instance.ref('healthMonitor/data');
+    _healthMonitorSubscription?.cancel();
+    _healthMonitorSubscription = databaseReference.limitToLast(1).onValue.listen((event) {
+      if (event.snapshot.value != null && mounted) {
+        final data = event.snapshot.value as Map<dynamic, dynamic>;
+        final latestEntry = data.values.first;
+        setState(() {
+          _latestHealthData = latestEntry as Map<dynamic, dynamic>?;
+        });
+      }
+    }, onError: (error) {
+      if (mounted) setState(() => _errorMessage = "Failed to load sensor data.");
+    });
+  }
+
+
   Future<void> _fetchHealthData() async {
     try {
       final now = DateTime.now();
       final todayStart = DateTime(now.year, now.month, now.day);
-
       final hrStats = await _healthService.getStatsForToday(HealthDataType.HEART_RATE);
       final hrPoints = await _healthService.getHealthData(todayStart, now, HealthDataType.HEART_RATE);
-
       final spo2Stats = await _healthService.getStatsForToday(HealthDataType.BLOOD_OXYGEN);
       final spo2Points = await _healthService.getHealthData(todayStart, now, HealthDataType.BLOOD_OXYGEN);
 
@@ -193,7 +229,10 @@ class _HomeScreenState extends State<HomeScreen> {
         child: Padding(
           padding: _cardPadding,
           child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              Text("HEART RATE", style: _cardTitleStyle.copyWith(color: _heartIconColor)),
+              const SizedBox(height: 8),
               Row(children: [const Icon(Icons.favorite_rounded, color: _heartIconColor, size: 50), const SizedBox(width: 12), Expanded(child: RichText(text: TextSpan(text: currentBpm, style: _heartRateBPMStyle, children: const [TextSpan(text: ' BPM', style: _unitStyle)])))]),
               const SizedBox(height: 12),
               RichText(text: TextSpan(text: '24-Hour Average: ', style: _averageStyle, children: [TextSpan(text: '$averageBpm BPM', style: _averageStyle.copyWith(fontWeight: FontWeight.bold))])),
@@ -218,12 +257,176 @@ class _HomeScreenState extends State<HomeScreen> {
         child: Padding(
           padding: _cardPadding,
           child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              Text("BLOOD OXYGEN", style: _cardTitleStyle.copyWith(color: _oxygenIconColor)),
+              const SizedBox(height: 8),
               Row(children: [const Icon(Icons.bloodtype, color: _oxygenIconColor, size: 50), const SizedBox(width: 12), Expanded(child: RichText(text: TextSpan(text: currentSpo2, style: _oxygenPercentStyle, children: const [TextSpan(text: ' %', style: _unitStyle)])))]),
               const SizedBox(height: 12),
               RichText(text: TextSpan(text: '24-Hour Average: ', style: _averageStyle, children: [TextSpan(text: '$averageSpo2 %', style: _averageStyle.copyWith(fontWeight: FontWeight.bold))])),
               const SizedBox(height: 16),
               SizedBox(height: 120, child: _buildLineChart(_spo2DataPoints, _oxygenIconColor)),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPostureAngleDetails(Map<dynamic, dynamic> postureData) {
+    final flexion = postureData['trunkFlexion']?.toDouble() ?? 0.0;
+    final sideBend = postureData['trunkSideBend']?.toDouble() ?? 0.0;
+    final twist = postureData['trunkTwist']?.toDouble() ?? 0.0;
+
+    Widget angleRow(String label, double value) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 4.0),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(label, style: _subtleTextStyle.copyWith(fontSize: 14)),
+            Text('${value.toStringAsFixed(1)}°', style: _averageStyle.copyWith(fontWeight: FontWeight.bold, fontSize: 14)),
+          ],
+        ),
+      );
+    }
+
+    return Column(
+      children: [
+        angleRow("Trunk Flexion", flexion),
+        angleRow("Side Bend", sideBend),
+        angleRow("Twist", twist),
+      ],
+    );
+  }
+
+  Widget _buildPostureCard() {
+    final postureData = _latestHealthData?['posture'];
+    final String status = postureData?['rulaAssessment'] ?? '...';
+    final int score = postureData?['rulaScore'] ?? 0;
+    final double progress = (score > 0) ? score / 7.0 : 0.0;
+
+    Color progressColor;
+    if (score <= 2) {
+      progressColor = Colors.green;
+    } else if (score <= 4) {
+      progressColor = Colors.yellow.shade700;
+    } else {
+      progressColor = Colors.orange;
+    }
+
+    return InkWell(
+      onTap: () => Navigator.pushNamed(context, AppRoutes.postureScreen),
+      borderRadius: _cardBorderRadius,
+      child: Card(
+        elevation: _cardElevation,
+        shape: RoundedRectangleBorder(borderRadius: _cardBorderRadius),
+        child: Padding(
+          padding: _cardPadding,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text("POSTURE", style: _cardTitleStyle.copyWith(color: _postureIconColor)),
+              const SizedBox(height: 8),
+              if (_latestHealthData == null)
+                const Center(heightFactor: 5, child: Text("Fetching data...", style: _subtleTextStyle))
+              else
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        const Icon(Icons.accessibility_new_rounded, color: _postureIconColor, size: 50),
+                        const SizedBox(width: 12),
+                        Expanded(child: Text(status, style: _postureStatusStyle)),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    Text("RULA Score: $score", style: _averageStyle.copyWith(fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 8),
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(10),
+                      child: LinearProgressIndicator(
+                        value: progress,
+                        minHeight: 10,
+                        backgroundColor: Colors.grey.shade300,
+                        valueColor: AlwaysStoppedAnimation<Color>(progressColor),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    Divider(color: Colors.grey.shade200),
+                    const SizedBox(height: 8),
+                    _buildPostureAngleDetails(postureData!),
+                  ],
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildStressCard() {
+    final stressData = _latestHealthData?['stress'];
+    final String level = stressData?['stressLevel']?.replaceAll('_', ' ') ?? '...';
+    final int gsrDeviation = stressData?['gsrDeviation']?.toInt() ?? 0;
+
+    // Calculate a percentage based on deviation. Assume a deviation of 50 is "max" for visual purposes.
+    final double percent = (gsrDeviation.abs() / 50.0).clamp(0.0, 1.0);
+
+    Color stressColor;
+    if (level == 'RELAXED') {
+      stressColor = Colors.teal;
+    } else if (level == 'MILD STRESS') {
+      stressColor = Colors.orange.shade600;
+    } else { // HIGH_STRESS or other
+      stressColor = Colors.red.shade700;
+    }
+
+    return InkWell(
+      onTap: () => Navigator.pushNamed(context, AppRoutes.stressLevelScreen),
+      borderRadius: _cardBorderRadius,
+      child: Card(
+        elevation: _cardElevation,
+        shape: RoundedRectangleBorder(borderRadius: _cardBorderRadius),
+        child: Padding(
+          padding: _cardPadding,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text("STRESS", style: _cardTitleStyle.copyWith(color: _stressIconColor)),
+              const SizedBox(height: 8),
+              if (_latestHealthData == null)
+                const Center(heightFactor: 5, child: Text("Fetching data...", style: _subtleTextStyle))
+              else
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    Expanded(
+                      flex: 2,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(level, style: _stressStatusStyle, softWrap: true,),
+                          const SizedBox(height: 8),
+                          Text("GSR Deviation: $gsrDeviation", style: _averageStyle.copyWith(fontWeight: FontWeight.bold)),
+                        ],
+                      ),
+                    ),
+                    Expanded(
+                      flex: 1,
+                      child: CircularPercentIndicator(
+                        radius: 45.0,
+                        lineWidth: 10.0,
+                        percent: percent,
+                        center: Icon(Icons.bolt, color: stressColor, size: 30),
+                        progressColor: stressColor,
+                        backgroundColor: Colors.grey.shade300,
+                        circularStrokeCap: CircularStrokeCap.round,
+                      ),
+                    ),
+                  ],
+                ),
             ],
           ),
         ),
@@ -244,7 +447,7 @@ class _HomeScreenState extends State<HomeScreen> {
         centerTitle: true,
         automaticallyImplyLeading: false,
       ),
-      body: _isLoading
+      body: _isLoading && _latestHealthData == null
           ? const Center(child: CircularProgressIndicator(color: _primaryAppColor))
           : RefreshIndicator(
         onRefresh: _fetchAllData,
@@ -259,10 +462,12 @@ class _HomeScreenState extends State<HomeScreen> {
             children: [
               _buildUserDetailsCard(),
               const SizedBox(height: 8),
-
+              _buildPostureCard(),
+              const SizedBox(height: 16),
+              _buildStressCard(),
+              const SizedBox(height: 16),
               _buildHeartRateCard(),
               const SizedBox(height: 16),
-
               _buildSpo2Card(),
             ],
           ),

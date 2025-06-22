@@ -1,45 +1,37 @@
-// lib/features/stress_level/stress_level_screen.dart
+import 'dart:async';
 import 'package:flutter/material.dart';
-// import 'package:smartvest/config/app_routes.dart'; // If needed for other navigation
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_database/firebase_database.dart';
+import 'package:fl_chart/fl_chart.dart';
+import 'package:flutter_markdown/flutter_markdown.dart';
+import 'package:intl/intl.dart';
+import 'package:smartvest/core/services/gemini_service.dart';
 
-// Style Constants for StressLevelScreen
+// --- Caching for AI Summary ---
+String _cachedStressSummary = "Generating summary...";
+DateTime? _lastStressSummaryTimestamp;
+
+// --- Style Constants ---
 const Color _screenBgColor = Color(0xFFF5F5F5);
 const Color _cardBgColor = Colors.white;
 const Color _primaryTextColor = Color(0xFF333333);
 const Color _secondaryTextColor = Color(0xFF757575);
-const Color _accentColorBlue = Color(0xFF007AFF); // For selected segment button
+const Color _stressColor = Color(0xFFFFA000);
+const Color _aiSummaryIconColor = Color(0xFF9B59B6);
 
 final BorderRadius _cardBorderRadius = BorderRadius.circular(12.0);
 const EdgeInsets _cardPadding = EdgeInsets.all(16.0);
 const double _cardElevation = 1.5;
 
 const TextStyle _generalCardTitleStyle = TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: _primaryTextColor);
-const TextStyle _segmentButtonTextStyle = TextStyle(fontSize: 14, fontWeight: FontWeight.w500);
+const TextStyle _summaryLabelStyle = TextStyle(fontSize: 12, color: _secondaryTextColor);
+const TextStyle _summaryValueStyle = TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: _primaryTextColor);
+const TextStyle _currentValueStyle = TextStyle(fontSize: 36, fontWeight: FontWeight.bold, color: _primaryTextColor);
+const TextStyle _currentUnitStyle = TextStyle(fontSize: 16, color: _secondaryTextColor);
+const TextStyle _currentTimeStyle = TextStyle(fontSize: 12, color: _secondaryTextColor);
 const TextStyle _chartAxisLabelStyle = TextStyle(fontSize: 10, color: _secondaryTextColor);
-const TextStyle _subtleTextStyle = TextStyle(fontSize: 12, color: _secondaryTextColor);
-
-// Styles for Card 1 (Current Stress Level)
-const TextStyle _currentStressValueStyle = TextStyle(fontSize: 36, fontWeight: FontWeight.bold, color: _primaryTextColor);
-const TextStyle _currentStressUnitStyle = TextStyle(fontSize: 16, color: _secondaryTextColor); // For "%"
-const TextStyle _currentStressTimeStyle = TextStyle(fontSize: 12, color: _secondaryTextColor);
-
-// Styles for Card 2 (Graph Card)
-const TextStyle _graphDateRangeStyle = TextStyle(fontSize: 12, color: _secondaryTextColor);
-const TextStyle _graphAverageLabelStyle = TextStyle(fontSize: 14, color: _primaryTextColor);
-const TextStyle _graphLegendLabelStyle = TextStyle(fontSize: 10, color: _secondaryTextColor);
-
-// Styles for Card 3 (Summary Card)
-const TextStyle _summaryViewAllStyle = TextStyle(fontSize: 14, fontWeight: FontWeight.w500, color: _accentColorBlue);
-const TextStyle _summaryTextStyle = TextStyle(fontSize: 14, color: _secondaryTextColor, height: 1.5);
-const TextStyle _modalTitleStyle = TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: _primaryTextColor);
-const TextStyle _modalTextStyle = TextStyle(fontSize: 15, color: _secondaryTextColor, height: 1.5);
-
-// Colors for Bar Chart Legend
-const Color _legendLowColor = Colors.green;
-const Color _legendNormalColor = Colors.yellow; // Or a light orange
-const Color _legendAverageColor = Colors.orange;
-const Color _legendHighColor = Colors.red;
-
+const TextStyle _cardTitleStyle = TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: _secondaryTextColor);
 
 class StressLevelScreen extends StatefulWidget {
   const StressLevelScreen({super.key});
@@ -49,40 +41,172 @@ class StressLevelScreen extends StatefulWidget {
 }
 
 class _StressLevelScreenState extends State<StressLevelScreen> {
-  int _selectedSegment = 1; // Default to "Week" as per Figma
+  final GeminiService _geminiService = GeminiService();
+  final DatabaseReference _databaseReference = FirebaseDatabase.instance.ref('healthMonitor/data');
+  StreamSubscription? _dataSubscription;
 
-  // --- Card 1: Current Stress Level ---
-  Widget _buildCurrentStressLevelCard() {
-    const String currentStressPercent = "99";
-    const String currentTime = "00:00 am";
+  bool _isLoading = true;
+  String _aiSummary = _cachedStressSummary; // Initialize with cached value
+  List<Map<dynamic, dynamic>> _stressDataList = [];
+
+  double _maxGsr = 0;
+  double _minGsr = 0;
+  double _avgGsr = 0;
+  Map<dynamic, dynamic>? _latestStressData;
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchData();
+  }
+
+  @override
+  void dispose() {
+    _dataSubscription?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _fetchData() async {
+    if (!mounted) return;
+    setState(() { _isLoading = true; });
+
+    _dataSubscription = _databaseReference.limitToLast(100).onValue.listen((event) {
+      if (!mounted || event.snapshot.value == null) {
+        if (mounted) setState(() => _isLoading = false);
+        return;
+      }
+
+      final dataMap = event.snapshot.value as Map<dynamic, dynamic>;
+      final List<Map<dynamic, dynamic>> tempList = [];
+      double sum = 0;
+      double? min, max;
+
+      dataMap.forEach((key, value) {
+        final entry = value as Map<dynamic, dynamic>;
+        final timestampStr = entry['timestamp']?.toString();
+        if (timestampStr != null) {
+          entry['parsedTimestamp'] = DateTime.fromMillisecondsSinceEpoch(int.parse(timestampStr));
+          tempList.add(entry);
+        }
+      });
+
+      tempList.sort((a, b) => a['parsedTimestamp'].compareTo(b['parsedTimestamp']));
+
+      for (var entry in tempList) {
+        final gsr = entry['stress']?['gsrReading']?.toDouble() ?? 0.0;
+        sum += gsr;
+        if (min == null || gsr < min) min = gsr;
+        if (max == null || gsr > max) max = gsr;
+      }
+
+      if(mounted) {
+        setState(() {
+          _stressDataList = tempList;
+          if (_stressDataList.isNotEmpty) {
+            _latestStressData = _stressDataList.last;
+            _minGsr = min ?? 0;
+            _maxGsr = max ?? 0;
+            _avgGsr = sum / _stressDataList.length;
+          }
+          _isLoading = false;
+        });
+      }
+
+      _generateAiSummary();
+    });
+  }
+
+  Future<void> _generateAiSummary() async {
+    // ** Caching Logic: Check if a summary was generated less than an hour ago **
+    if (_lastStressSummaryTimestamp != null &&
+        DateTime.now().difference(_lastStressSummaryTimestamp!) < const Duration(hours: 1)) {
+      if (mounted) {
+        setState(() {
+          _aiSummary = _cachedStressSummary;
+        });
+      }
+      return;
+    }
+
+    if (_stressDataList.isEmpty || !mounted) {
+      if (mounted) setState(() => _aiSummary = "Not enough data to generate a summary.");
+      return;
+    }
+
+    if (mounted) setState(() { _aiSummary = "Generating new summary..."; });
+
+    final dataSummaryString = _stressDataList.map((data) {
+      final gsr = data['stress']?['gsrReading'] ?? '?';
+      final level = data['stress']?['stressLevel'] ?? 'UNKNOWN';
+      final time = DateFormat.Hm().format(data['parsedTimestamp']);
+      return "GSR $gsr ($level) at $time";
+    }).join(', ');
+
+    const analysisInstructions = """
+        Based on the Galvanic Skin Response (GSR) data, where higher values can indicate a stronger stress or emotional response, provide:
+        1. **Stress Overview**: A one-sentence summary of the user's stress state during this period.
+        2. **Key Observations**: Point out any significant peaks or valleys in GSR readings and what they might imply (e.g., "a spike around 2 PM could indicate a stressful event"). Mention the detected stress levels (e.g., RELAXED, MILD_STRESS).
+        3. **Wellbeing Tips**: Offer 2-3 simple, friendly tips for managing stress, such as deep breathing exercises, taking a short walk, or listening to calm music.
+      """;
+
+    User? user = FirebaseAuth.instance.currentUser;
+    int? userAge;
+    if (user != null) {
+      final doc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
+      if (doc.exists && doc.data()!.containsKey('birthday')) {
+        final birthday = (doc.data()!['birthday'] as Timestamp).toDate();
+        userAge = DateTime.now().year - birthday.year;
+      }
+    }
+
+    final summary = await _geminiService.getSummaryFromRawString(
+      metricName: "Stress (GSR Reading)",
+      dataSummary: dataSummaryString,
+      userAge: userAge,
+      analysisInstructions: analysisInstructions,
+    );
+
+    _cachedStressSummary = summary;
+    _lastStressSummaryTimestamp = DateTime.now();
+
+    if (mounted) setState(() => _aiSummary = summary);
+  }
+
+  Widget _buildCurrentStressCard() {
+    final stress = _latestStressData?['stress'];
+    final level = stress?['stressLevel']?.replaceAll('_', ' ') ?? '--';
+    final gsr = stress?['gsrReading']?.toString() ?? '--';
+    final time = _latestStressData != null
+        ? DateFormat('MMM d, hh:mm a').format(_latestStressData!['parsedTimestamp'])
+        : '--';
 
     return Card(
       elevation: _cardElevation,
       shape: RoundedRectangleBorder(borderRadius: _cardBorderRadius),
-      color: _cardBgColor,
       margin: const EdgeInsets.only(bottom: 20.0),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text("Stress Level", style: _generalCardTitleStyle),
+            const Text("Latest Stress Reading", style: _generalCardTitleStyle),
             const SizedBox(height: 12),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               crossAxisAlignment: CrossAxisAlignment.baseline,
               textBaseline: TextBaseline.alphabetic,
               children: [
-                RichText(
-                  text: TextSpan(
-                    text: currentStressPercent,
-                    style: _currentStressValueStyle,
-                    children: <TextSpan>[
-                      TextSpan(text: ' %', style: _currentStressUnitStyle),
-                    ],
+                Flexible(
+                  child: RichText(
+                    text: TextSpan(
+                      text: level,
+                      style: _currentValueStyle,
+                      children: <TextSpan>[TextSpan(text: ' (GSR: $gsr)', style: _currentUnitStyle)],
+                    ),
+                    softWrap: true,
                   ),
                 ),
-                Text(currentTime, style: _currentStressTimeStyle),
+                Text(time, style: _currentTimeStyle),
               ],
             ),
           ],
@@ -91,156 +215,74 @@ class _StressLevelScreenState extends State<StressLevelScreen> {
     );
   }
 
-  // --- Segmented Control for Graph Card ---
-  Widget _buildSegmentedControl() {
-    return Container(
-      padding: const EdgeInsets.symmetric(vertical: 8.0),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceAround,
-        children: [
-          _segmentButton("Day", 0),
-          _segmentButton("Week", 1),
-          _segmentButton("Month", 2),
-          _segmentButton("Year", 3),
-        ],
-      ),
-    );
-  }
-
-  Widget _segmentButton(String text, int index) {
-    bool isSelected = _selectedSegment == index;
-    return ElevatedButton(
-      onPressed: () {
-        setState(() {
-          _selectedSegment = index;
-          // TODO: Add logic to update chart data based on selection
-        });
-      },
-      style: ElevatedButton.styleFrom(
-        backgroundColor: isSelected ? _accentColorBlue : Colors.grey.shade200,
-        foregroundColor: isSelected ? Colors.white : _secondaryTextColor,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-        elevation: isSelected ? 2 : 0,
-        textStyle: _segmentButtonTextStyle,
-      ),
-      child: Text(text),
-    );
-  }
-
-  // --- Helper for Bar Chart Legend Item ---
-  Widget _buildLegendItem(Color color, String label) {
-    return Row(
+  Widget _buildSummaryStatItem(String value, String label) {
+    return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Container(
-          width: 10,
-          height: 10,
-          decoration: BoxDecoration(
-            color: color,
-            shape: BoxShape.circle,
-          ),
-        ),
-        const SizedBox(width: 4),
-        Text(label, style: _graphLegendLabelStyle),
+        Text(value, style: _summaryValueStyle),
+        const SizedBox(height: 2),
+        Text(label, style: _summaryLabelStyle),
       ],
     );
   }
 
-  // --- Card 2: Stress Level Graph Card ---
-  Widget _buildStressLevelGraphCard() {
-    const String dateRange = "17.02 - 23.02"; // Dummy data
-    const String averageStressLevelText = "32-35"; // Dummy data
+  Widget _buildChart() {
+    if (_stressDataList.isEmpty) {
+      return const Center(child: Text("No stress data available."));
+    }
 
-    return Card(
-      elevation: _cardElevation,
-      shape: RoundedRectangleBorder(borderRadius: _cardBorderRadius),
-      color: _cardBgColor,
-      margin: const EdgeInsets.only(bottom: 20.0),
-      child: Padding(
-        padding: _cardPadding,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            _buildSegmentedControl(),
-            const SizedBox(height: 12),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(averageStressLevelText, style: _currentStressValueStyle.copyWith(fontSize: 24)), // Reusing style, adjust if needed
-                Text(dateRange, style: _graphDateRangeStyle),
-              ],
-            ),
-            const SizedBox(height: 2),
-            const Text("Average level of stress", style: _subtleTextStyle),
-            const SizedBox(height: 16),
-            // Placeholder for Bar Chart
-            Container(
-              height: 180, // Adjusted height for bar chart
-              decoration: BoxDecoration(
-                  color: Colors.grey.shade100,
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: Colors.grey.shade300)
-              ),
-              child: const Center(child: Text("Bar Chart Placeholder", style: _subtleTextStyle)),
-            ),
-            const SizedBox(height: 8),
-            // X-axis labels for days
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
-                  .map((label) => Text(label, style: _chartAxisLabelStyle))
-                  .toList(),
-            ),
-            const SizedBox(height: 12),
-            // Legend
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-              children: [
-                _buildLegendItem(_legendLowColor, "Low"),
-                _buildLegendItem(_legendNormalColor, "Normal"),
-                _buildLegendItem(_legendAverageColor, "Average"),
-                _buildLegendItem(_legendHighColor, "High"),
-              ],
-            )
-          ],
+    final spots = _stressDataList.map((data) {
+      final gsr = data['stress']?['gsrReading']?.toDouble() ?? 0.0;
+      final timestamp = (data['parsedTimestamp'] as DateTime).millisecondsSinceEpoch.toDouble();
+      return FlSpot(timestamp, gsr);
+    }).toList();
+
+    return LineChart(
+      LineChartData(
+        lineBarsData: [
+          LineChartBarData(
+            spots: spots,
+            isCurved: true,
+            color: _stressColor,
+            barWidth: 2,
+            dotData: const FlDotData(show: false),
+            belowBarData: BarAreaData(show: true, color: _stressColor.withOpacity(0.1)),
+          ),
+        ],
+        titlesData: FlTitlesData(
+          bottomTitles: AxisTitles(sideTitles: SideTitles(showTitles: true, getTitlesWidget: (value, meta) {
+            final date = DateTime.fromMillisecondsSinceEpoch(value.toInt());
+            return SideTitleWidget(axisSide: meta.axisSide, child: Text(DateFormat.Hm().format(date), style: _chartAxisLabelStyle));
+          }, interval: (_stressDataList.last['parsedTimestamp'].millisecondsSinceEpoch - _stressDataList.first['parsedTimestamp'].millisecondsSinceEpoch) / 4)),
+          leftTitles: const AxisTitles(sideTitles: SideTitles(showTitles: true, reservedSize: 40)),
+          topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+          rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
         ),
+        gridData: const FlGridData(show: true),
+        borderData: FlBorderData(show: true),
       ),
     );
   }
 
-  // --- Card 3: Summary Card ---
-  Widget _buildSummaryCard() {
-    const String summaryText = "Lorem ipsum dolor sit amet consectetur. Dictumst vel at mauris enim maecenas aliquet. Sem turpis eleifend tristique enim mi tincidunt. Velit curabitur aenean leo faci...";
-
+  Widget _buildGraphCard() {
     return Card(
       elevation: _cardElevation,
       shape: RoundedRectangleBorder(borderRadius: _cardBorderRadius),
-      color: _cardBgColor,
       margin: const EdgeInsets.only(bottom: 20.0),
       child: Padding(
         padding: _cardPadding,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            SizedBox(height: 200, child: _isLoading ? const Center(child: CircularProgressIndicator()) : _buildChart()),
+            const SizedBox(height: 20),
             Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              mainAxisAlignment: MainAxisAlignment.spaceAround,
               children: [
-                const Text("Summary", style: _generalCardTitleStyle),
-                TextButton(
-                  onPressed: () {
-                    _showSummaryModal(context);
-                  },
-                  child: const Text("View all", style: _summaryViewAllStyle),
-                ),
+                _buildSummaryStatItem(_maxGsr.toStringAsFixed(0), "Max GSR"),
+                _buildSummaryStatItem(_minGsr.toStringAsFixed(0), "Min GSR"),
+                _buildSummaryStatItem(_avgGsr.toStringAsFixed(1), "Average GSR"),
               ],
-            ),
-            const SizedBox(height: 8),
-            Text(
-              summaryText,
-              style: _summaryTextStyle,
-              maxLines: 3,
-              overflow: TextOverflow.ellipsis,
             ),
           ],
         ),
@@ -248,53 +290,23 @@ class _StressLevelScreenState extends State<StressLevelScreen> {
     );
   }
 
-  void _showSummaryModal(BuildContext context) {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+  Widget _buildSummaryCard(String title, String summary, IconData icon, Color iconColor) {
+    return Card(
+      elevation: _cardElevation,
+      shape: RoundedRectangleBorder(borderRadius: _cardBorderRadius),
+      color: _cardBgColor,
+      margin: const EdgeInsets.only(bottom: 16.0, top: 16.0),
+      child: Padding(
+        padding: _cardPadding,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(children: [Icon(icon, color: iconColor, size: 20), const SizedBox(width: 8), Text(title.toUpperCase(), style: _cardTitleStyle)]),
+            const SizedBox(height: 12),
+            MarkdownBody(data: summary, styleSheet: MarkdownStyleSheet.fromTheme(Theme.of(context)).copyWith(p: const TextStyle(color: _primaryTextColor))),
+          ],
+        ),
       ),
-      builder: (BuildContext context) {
-        return DraggableScrollableSheet(
-          expand: false,
-          initialChildSize: 0.6,
-          minChildSize: 0.3,
-          maxChildSize: 0.9,
-          builder: (_, scrollController) {
-            return Container(
-              padding: const EdgeInsets.all(20.0),
-              child: ListView(
-                controller: scrollController,
-                children: [
-                  const Text("Full Stress Level Summary", style: _modalTitleStyle),
-                  const SizedBox(height: 16),
-                  const Text(
-                    "Your stress level today reached a peak of 99% around midnight, which is very high. "
-                        "The weekly average stress level is between 32-35, indicating a generally moderate stress baseline with significant peaks. "
-                        "The bar chart shows daily fluctuations, with Wednesday and Saturday being particularly high-stress days. "
-                        "It's important to identify triggers on these days.\n\n"
-                        "Recommendations:\n"
-                        "- Practice mindfulness or meditation, especially before bed or during anticipated stressful periods.\n"
-                        "- Ensure adequate sleep, as lack of rest can significantly elevate stress.\n"
-                        "- Consider light physical activity to help manage stress levels.\n\n"
-                        "The legend indicates: Green (Low), Yellow (Normal), Orange (Average), Red (High). Aim to keep your daily stress within the Low to Normal ranges more consistently.",
-                    style: _modalTextStyle,
-                  ),
-                  const SizedBox(height: 20),
-                  Align(
-                    alignment: Alignment.centerRight,
-                    child: TextButton(
-                      onPressed: () => Navigator.pop(context),
-                      child: const Text("Close", style: _summaryViewAllStyle),
-                    ),
-                  ),
-                ],
-              ),
-            );
-          },
-        );
-      },
     );
   }
 
@@ -308,30 +320,15 @@ class _StressLevelScreenState extends State<StressLevelScreen> {
         elevation: 0,
         iconTheme: const IconThemeData(color: _primaryTextColor),
       ),
-      body: ListView(
+      body: _isLoading && _stressDataList.isEmpty
+          ? const Center(child: CircularProgressIndicator())
+          : ListView(
         padding: const EdgeInsets.all(16.0),
         children: <Widget>[
-          _buildCurrentStressLevelCard(),    // Card 1 from Figma
-          _buildStressLevelGraphCard(),      // Card 2 from Figma
-          _buildSummaryCard(),               // Card 3 from Figma
-          Padding(
-            padding: const EdgeInsets.only(top: 8.0),
-            child: Text(
-              "Note: Heart Rate Variability (HRV) is one of many factors considered and has limitations as a sole measure of stress.", // [cite: 86]
-              style: TextStyle(fontSize: 11, color: Colors.grey[600]),
-              textAlign: TextAlign.center,
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.all(16.0),
-            child: Text(
-              "Data is for informational purposes only. Not for clinical use.",
-              style: TextStyle(fontSize: 12, color: Colors.grey),
-              textAlign: TextAlign.center,
-            ),
-          ),
+          _buildCurrentStressCard(),
+          _buildGraphCard(),
+          _buildSummaryCard("AI Stress Summary", _aiSummary, Icons.auto_awesome, _aiSummaryIconColor),
         ],
-
       ),
     );
   }
