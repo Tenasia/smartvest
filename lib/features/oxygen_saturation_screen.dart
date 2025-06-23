@@ -52,6 +52,7 @@ class _OxygenSaturationScreenState extends State<OxygenSaturationScreen> {
   List<HealthDataPoint> _dataPoints = [];
   HealthStats _stats = HealthStats();
   String _aiSummary = _cachedSpo2Summary; // Initialize with cached value
+  DateTime? _chartStartTime; // To store the start time for the chart's range
 
   @override
   void initState() {
@@ -110,6 +111,7 @@ class _OxygenSaturationScreenState extends State<OxygenSaturationScreen> {
       case 2: startTime = now.subtract(const Duration(days: 30)); break;
       default: startTime = DateTime(now.year, now.month, now.day);
     }
+    _chartStartTime = startTime;
 
     final points = await _healthService.getHealthData(startTime, now, HealthDataType.BLOOD_OXYGEN);
 
@@ -142,6 +144,15 @@ class _OxygenSaturationScreenState extends State<OxygenSaturationScreen> {
     }
   }
 
+  double _calculateTitleInterval(DateTime start, DateTime end) {
+    switch (_selectedSegment) {
+      case 0: return const Duration(hours: 4).inMilliseconds.toDouble();
+      case 1: return const Duration(days: 1).inMilliseconds.toDouble();
+      case 2: return const Duration(days: 5).inMilliseconds.toDouble();
+      default: return const Duration(days: 1).inMilliseconds.toDouble();
+    }
+  }
+
   // --- WIDGETS ---
   Widget _buildSummaryCard(String title, String summary, IconData icon, Color iconColor) {
     return Card(
@@ -154,7 +165,7 @@ class _OxygenSaturationScreenState extends State<OxygenSaturationScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(children: [Icon(icon, color: iconColor, size: 20), const SizedBox(width: 8), Text(title, style: _cardTitleStyle)]),
+            Row(children: [Icon(icon, color: iconColor, size: 20), const SizedBox(width: 8), Text(title.toUpperCase(), style: _cardTitleStyle)]),
             const SizedBox(height: 12),
             MarkdownBody(data: summary, styleSheet: MarkdownStyleSheet.fromTheme(Theme.of(context)).copyWith(p: const TextStyle(color: _primaryTextColor))),
           ],
@@ -237,7 +248,7 @@ class _OxygenSaturationScreenState extends State<OxygenSaturationScreen> {
     );
   }
 
-  Widget _buildChart() {
+  Widget _buildChart(DateTime startTime) {
     if (_dataPoints.isEmpty) {
       return const Center(child: Text("No data for selected period."));
     }
@@ -248,18 +259,12 @@ class _OxygenSaturationScreenState extends State<OxygenSaturationScreen> {
       return FlSpot(xValue, value);
     }).toList();
 
-    double? bottomTitleInterval;
-    if (_dataPoints.length > 1) {
-      final timeRange = _dataPoints.last.dateFrom.millisecondsSinceEpoch - _dataPoints.first.dateFrom.millisecondsSinceEpoch;
-      if (timeRange > 0) {
-        bottomTitleInterval = timeRange / 4;
-      }
-    }
-
     return LineChart(
       LineChartData(
         minY: 85,
         maxY: 100,
+        minX: startTime.millisecondsSinceEpoch.toDouble(),
+        maxX: DateTime.now().millisecondsSinceEpoch.toDouble(),
         lineBarsData: [
           LineChartBarData(
             spots: spots,
@@ -271,14 +276,21 @@ class _OxygenSaturationScreenState extends State<OxygenSaturationScreen> {
           ),
         ],
         titlesData: FlTitlesData(
-          bottomTitles: AxisTitles(sideTitles: SideTitles(showTitles: true, getTitlesWidget: (value, meta) {
-            final date = DateTime.fromMillisecondsSinceEpoch(value.toInt());
-            String text = (_selectedSegment == 0) ? DateFormat.Hm().format(date) : DateFormat.Md().format(date);
-            return SideTitleWidget(axisSide: meta.axisSide, child: Text(text, style: _chartAxisLabelStyle));
-          }, interval: bottomTitleInterval)),
-          leftTitles: const AxisTitles(sideTitles: SideTitles(showTitles: true, reservedSize: 40)),
-          topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+          leftTitles: AxisTitles(sideTitles: SideTitles(showTitles: true, reservedSize: 40, getTitlesWidget: (value, meta) => SideTitleWidget(meta: meta, child: Text(value.toInt().toString(), style: _chartAxisLabelStyle)))),
           rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+          topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+          bottomTitles: AxisTitles(
+            sideTitles: SideTitles(
+              showTitles: true,
+              interval: _calculateTitleInterval(startTime, DateTime.now()),
+              reservedSize: 30,
+              getTitlesWidget: (value, meta) {
+                final date = DateTime.fromMillisecondsSinceEpoch(value.toInt());
+                String text = (_selectedSegment == 0) ? DateFormat.Hm().format(date) : DateFormat.Md().format(date);
+                return SideTitleWidget(meta: meta, child: Text(text, style: _chartAxisLabelStyle));
+              },
+            ),
+          ),
         ),
         gridData: const FlGridData(show: true),
         borderData: FlBorderData(show: true),
@@ -298,7 +310,7 @@ class _OxygenSaturationScreenState extends State<OxygenSaturationScreen> {
           children: [
             _buildSegmentedControl(),
             const SizedBox(height: 16),
-            SizedBox(height: 200, child: _isLoading ? const Center(child: CircularProgressIndicator()) : _buildChart()),
+            SizedBox(height: 200, child: _isLoading ? const Center(child: CircularProgressIndicator()) : _buildChart(_chartStartTime!)),
             const SizedBox(height: 20),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceAround,

@@ -156,6 +156,25 @@ class _HomeScreenState extends State<HomeScreen> {
     return age;
   }
 
+  /// Checks if the provided sensor data object has a timestamp from today.
+  bool _isDataFromToday(Map<dynamic, dynamic>? data) {
+    if (data == null) return false;
+    final timestampStr = data['timestamp']?.toString();
+    if (timestampStr == null) return false;
+
+    try {
+      final dataTimestamp = DateTime.fromMillisecondsSinceEpoch(int.parse(timestampStr));
+      final now = DateTime.now();
+      return dataTimestamp.year == now.year &&
+          dataTimestamp.month == now.month &&
+          dataTimestamp.day == now.day;
+    } catch (e) {
+      // Error parsing timestamp, treat as not from today
+      return false;
+    }
+  }
+
+
   // --- UI WIDGETS ---
 
   Widget _buildUserDetailsCard() {
@@ -301,7 +320,11 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildPostureCard() {
-    final postureData = _latestHealthData?['posture'];
+    // Check if the latest data is valid and from today.
+    final bool hasDataForToday = _isDataFromToday(_latestHealthData);
+
+    // If data is available, extract it. The check above ensures _latestHealthData is not null.
+    final postureData = hasDataForToday ? _latestHealthData!['posture'] : null;
     final String status = postureData?['rulaAssessment'] ?? '...';
     final int score = postureData?['rulaScore'] ?? 0;
     final double progress = (score > 0) ? score / 7.0 : 0.0;
@@ -328,8 +351,10 @@ class _HomeScreenState extends State<HomeScreen> {
             children: [
               Text("POSTURE", style: _cardTitleStyle.copyWith(color: _postureIconColor)),
               const SizedBox(height: 8),
-              if (_latestHealthData == null)
-                const Center(heightFactor: 5, child: Text("Fetching data...", style: _subtleTextStyle))
+              if (!hasDataForToday)
+                const Center(
+                    heightFactor: 5,
+                    child: Text("No data recorded today.", style: _subtleTextStyle))
               else
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -356,6 +381,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     const SizedBox(height: 16),
                     Divider(color: Colors.grey.shade200),
                     const SizedBox(height: 8),
+                    // The 'hasDataForToday' check ensures postureData is not null here.
                     _buildPostureAngleDetails(postureData!),
                   ],
                 ),
@@ -367,7 +393,11 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildStressCard() {
-    final stressData = _latestHealthData?['stress'];
+    // Check if the latest data is valid and from today.
+    final bool hasDataForToday = _isDataFromToday(_latestHealthData);
+
+    // If data is available, extract it.
+    final stressData = hasDataForToday ? _latestHealthData!['stress'] : null;
     final String level = stressData?['stressLevel']?.replaceAll('_', ' ') ?? '...';
     final int gsrDeviation = stressData?['gsrDeviation']?.toInt() ?? 0;
 
@@ -396,8 +426,10 @@ class _HomeScreenState extends State<HomeScreen> {
             children: [
               Text("STRESS", style: _cardTitleStyle.copyWith(color: _stressIconColor)),
               const SizedBox(height: 8),
-              if (_latestHealthData == null)
-                const Center(heightFactor: 5, child: Text("Fetching data...", style: _subtleTextStyle))
+              if (!hasDataForToday)
+                const Center(
+                    heightFactor: 5,
+                    child: Text("No data recorded today.", style: _subtleTextStyle))
               else
                 Row(
                   crossAxisAlignment: CrossAxisAlignment.center,
@@ -447,7 +479,8 @@ class _HomeScreenState extends State<HomeScreen> {
         centerTitle: true,
         automaticallyImplyLeading: false,
       ),
-      body: _isLoading && _latestHealthData == null
+      // Only show a full-screen loader on the very first load when user data is not yet available.
+      body: _isLoading && _userData == null
           ? const Center(child: CircularProgressIndicator(color: _primaryAppColor))
           : RefreshIndicator(
         onRefresh: _fetchAllData,

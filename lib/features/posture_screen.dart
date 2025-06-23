@@ -9,11 +9,8 @@ import 'package:intl/intl.dart';
 import 'package:smartvest/core/services/gemini_service.dart';
 
 // --- Caching for AI Summary ---
-// Note: static variables retain their value as long as the app is alive.
-// This provides a simple session-based cache.
 String _cachedPostureSummary = "Generating summary...";
 DateTime? _lastPostureSummaryTimestamp;
-
 
 // --- Style Constants ---
 const Color _screenBgColor = Color(0xFFF5F5F5);
@@ -49,7 +46,7 @@ class _PostureScreenState extends State<PostureScreen> {
   StreamSubscription? _dataSubscription;
 
   bool _isLoading = true;
-  String _aiSummary = _cachedPostureSummary; // Initialize with cached value
+  String _aiSummary = _cachedPostureSummary;
   List<Map<dynamic, dynamic>> _postureDataList = [];
 
   double _maxScore = 0;
@@ -109,27 +106,20 @@ class _PostureScreenState extends State<PostureScreen> {
             _latestPostureData = _postureDataList.last;
             _minScore = min ?? 0;
             _maxScore = max ?? 0;
-            _avgScore = sum / _postureDataList.length;
+            _avgScore = _postureDataList.isEmpty ? 0 : sum / _postureDataList.length;
           }
           _isLoading = false;
         });
       }
-
-      // Trigger AI summary generation which now includes the caching logic
       _generateAiSummary();
     });
   }
 
   Future<void> _generateAiSummary() async {
-    // ** Caching Logic: Check if a summary was generated less than an hour ago **
     if (_lastPostureSummaryTimestamp != null &&
         DateTime.now().difference(_lastPostureSummaryTimestamp!) < const Duration(hours: 1)) {
-      if (mounted) {
-        setState(() {
-          _aiSummary = _cachedPostureSummary; // Use cached summary
-        });
-      }
-      return; // Exit without calling the API
+      if (mounted) setState(() => _aiSummary = _cachedPostureSummary);
+      return;
     }
 
     if (_postureDataList.isEmpty || !mounted) {
@@ -169,7 +159,6 @@ class _PostureScreenState extends State<PostureScreen> {
       analysisInstructions: analysisInstructions,
     );
 
-    // Update cache and timestamp on successful generation
     _cachedPostureSummary = summary;
     _lastPostureSummaryTimestamp = DateTime.now();
 
@@ -247,10 +236,15 @@ class _PostureScreenState extends State<PostureScreen> {
       return FlSpot(timestamp, score);
     }).toList();
 
+    final startTime = _postureDataList.first['parsedTimestamp'] as DateTime;
+    final endTime = _postureDataList.last['parsedTimestamp'] as DateTime;
+
     return LineChart(
       LineChartData(
         minY: 1,
         maxY: 7,
+        minX: startTime.millisecondsSinceEpoch.toDouble(),
+        maxX: endTime.millisecondsSinceEpoch.toDouble(),
         lineBarsData: [
           LineChartBarData(
             spots: spots,
@@ -262,13 +256,20 @@ class _PostureScreenState extends State<PostureScreen> {
           ),
         ],
         titlesData: FlTitlesData(
-          bottomTitles: AxisTitles(sideTitles: SideTitles(showTitles: true, getTitlesWidget: (value, meta) {
-            final date = DateTime.fromMillisecondsSinceEpoch(value.toInt());
-            return SideTitleWidget(axisSide: meta.axisSide, child: Text(DateFormat.Hm().format(date), style: _chartAxisLabelStyle));
-          }, interval: (_postureDataList.last['parsedTimestamp'].millisecondsSinceEpoch - _postureDataList.first['parsedTimestamp'].millisecondsSinceEpoch) / 4)),
-          leftTitles: const AxisTitles(sideTitles: SideTitles(showTitles: true, reservedSize: 40)),
-          topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+          leftTitles: AxisTitles(sideTitles: SideTitles(showTitles: true, reservedSize: 40, getTitlesWidget: (val, meta) => SideTitleWidget(meta: meta, child: Text(val.toInt().toString(), style: _chartAxisLabelStyle)))),
           rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+          topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+          bottomTitles: AxisTitles(
+            sideTitles: SideTitles(
+              showTitles: true,
+              reservedSize: 22,
+              interval: (endTime.millisecondsSinceEpoch - startTime.millisecondsSinceEpoch) / 4,
+              getTitlesWidget: (value, meta) {
+                final date = DateTime.fromMillisecondsSinceEpoch(value.toInt());
+                return SideTitleWidget(meta: meta, child: Text(DateFormat.Hm().format(date), style: _chartAxisLabelStyle));
+              },
+            ),
+          ),
         ),
         gridData: const FlGridData(show: true),
         borderData: FlBorderData(show: true),

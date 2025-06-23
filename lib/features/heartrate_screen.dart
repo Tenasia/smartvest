@@ -7,11 +7,11 @@ import 'package:intl/intl.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'dart:math';
 
 // --- Caching for AI Summary ---
 String _cachedHeartRateSummary = "Generating summary...";
 DateTime? _lastHeartRateSummaryTimestamp;
-
 
 // --- Style Constants ---
 const Color _screenBgColor = Color(0xFFF5F5F5);
@@ -35,7 +35,6 @@ const TextStyle _currentHrTimeStyle = TextStyle(fontSize: 12, color: _secondaryT
 const TextStyle _chartAxisLabelStyle = TextStyle(fontSize: 10, color: _secondaryTextColor);
 const TextStyle _cardTitleStyle = TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: _secondaryTextColor);
 
-
 class HeartRateScreen extends StatefulWidget {
   const HeartRateScreen({super.key});
 
@@ -51,7 +50,8 @@ class _HeartRateScreenState extends State<HeartRateScreen> {
 
   List<HealthDataPoint> _dataPoints = [];
   HealthStats _stats = HealthStats();
-  String _aiSummary = _cachedHeartRateSummary; // Initialize with cached value
+  String _aiSummary = _cachedHeartRateSummary;
+  DateTime? _chartStartTime;
 
   @override
   void initState() {
@@ -60,15 +60,12 @@ class _HeartRateScreenState extends State<HeartRateScreen> {
   }
 
   Future<void> _generateAiSummary() async {
-    // ** Caching Logic: Check if a summary was generated less than an hour ago **
     if (_lastHeartRateSummaryTimestamp != null &&
         DateTime.now().difference(_lastHeartRateSummaryTimestamp!) < const Duration(hours: 1)) {
       if(mounted) {
-        setState(() {
-          _aiSummary = _cachedHeartRateSummary; // Use cached summary
-        });
+        setState(() => _aiSummary = _cachedHeartRateSummary);
       }
-      return; // Exit without calling the API
+      return;
     }
 
     if (_dataPoints.isEmpty) {
@@ -90,7 +87,6 @@ class _HeartRateScreenState extends State<HeartRateScreen> {
 
     final summary = await _geminiService.getHealthSummary("Heart Rate", _dataPoints, userAge);
 
-    // Update cache and timestamp
     _cachedHeartRateSummary = summary;
     _lastHeartRateSummaryTimestamp = DateTime.now();
 
@@ -110,6 +106,7 @@ class _HeartRateScreenState extends State<HeartRateScreen> {
       case 2: startTime = now.subtract(const Duration(days: 30)); break;
       default: startTime = DateTime(now.year, now.month, now.day);
     }
+    _chartStartTime = startTime;
 
     final points = await _healthService.getHealthData(startTime, now, HealthDataType.HEART_RATE);
 
@@ -138,7 +135,6 @@ class _HeartRateScreenState extends State<HeartRateScreen> {
         _isLoading = false;
       });
 
-      // Trigger AI summary generation with caching logic
       _generateAiSummary();
     }
   }
@@ -155,7 +151,7 @@ class _HeartRateScreenState extends State<HeartRateScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(children: [Icon(icon, color: iconColor, size: 20), const SizedBox(width: 8), Text(title, style: _cardTitleStyle)]),
+            Row(children: [Icon(icon, color: iconColor, size: 20), const SizedBox(width: 8), Text(title.toUpperCase(), style: _cardTitleStyle)]),
             const SizedBox(height: 12),
             MarkdownBody(data: summary, styleSheet: MarkdownStyleSheet.fromTheme(Theme.of(context)).copyWith(p: const TextStyle(color: _primaryTextColor))),
           ],
@@ -238,49 +234,165 @@ class _HeartRateScreenState extends State<HeartRateScreen> {
     );
   }
 
-  Widget _buildChart() {
+  // Updated method to create bar chart instead of line chart
+  Widget _buildBarChart() {
     if (_dataPoints.isEmpty) {
       return const Center(child: Text("No data for selected period."));
     }
 
-    final spots = _dataPoints.map((point) {
-      final value = (point.value as NumericHealthValue).numericValue.toDouble();
-      final xValue = point.dateFrom.millisecondsSinceEpoch.toDouble();
-      return FlSpot(xValue, value);
-    }).toList();
+    bool isDayView = _selectedSegment == 0;
 
-    double? bottomTitleInterval;
-    if (_dataPoints.length > 1) {
-      final timeRange = _dataPoints.last.dateFrom.millisecondsSinceEpoch - _dataPoints.first.dateFrom.millisecondsSinceEpoch;
-      if (timeRange > 0) {
-        bottomTitleInterval = timeRange / 4;
+    List<BarChartGroupData> barGroups = [];
+
+    if (isDayView) {
+      // For day view, group data by hour
+      Map<int, List<double>> hourlyData = {};
+
+      for (var point in _dataPoints) {
+        int hour = point.dateFrom.hour;
+        double value = (point.value as NumericHealthValue).numericValue.toDouble();
+
+        if (!hourlyData.containsKey(hour)) {
+          hourlyData[hour] = [];
+        }
+        hourlyData[hour]!.add(value);
       }
+
+      // Create bar groups for each hour with data
+      for (int hour = 0; hour < 24; hour++) {
+        double avgValue = 0;
+        if (hourlyData.containsKey(hour) && hourlyData[hour]!.isNotEmpty) {
+          avgValue = hourlyData[hour]!.reduce((a, b) => a + b) / hourlyData[hour]!.length;
+        }
+
+        barGroups.add(
+          BarChartGroupData(
+            x: hour,
+            barRods: [
+              BarChartRodData(
+                toY: avgValue,
+                color: _heartRateColor,
+                width: 8,
+                borderRadius: const BorderRadius.only(
+                  topLeft: Radius.circular(2),
+                  topRight: Radius.circular(2),
+                ),
+              ),
+            ],
+          ),
+        );
+      }
+    } else {
+      // For week/month view, group by day
+      Map<int, List<double>> dailyData = {};
+
+      for (var point in _dataPoints) {
+        int daysSinceStart = point.dateFrom.difference(_chartStartTime!).inDays;
+        double value = (point.value as NumericHealthValue).numericValue.toDouble();
+
+        if (!dailyData.containsKey(daysSinceStart)) {
+          dailyData[daysSinceStart] = [];
+        }
+        dailyData[daysSinceStart]!.add(value);
+      }
+
+      dailyData.forEach((day, values) {
+        double avgValue = values.reduce((a, b) => a + b) / values.length;
+        barGroups.add(
+          BarChartGroupData(
+            x: day,
+            barRods: [
+              BarChartRodData(
+                toY: avgValue,
+                color: _heartRateColor,
+                width: 12,
+                borderRadius: const BorderRadius.only(
+                  topLeft: Radius.circular(2),
+                  topRight: Radius.circular(2),
+                ),
+              ),
+            ],
+          ),
+        );
+      });
     }
 
-    return LineChart(
-      LineChartData(
-        lineBarsData: [
-          LineChartBarData(
-            spots: spots,
-            isCurved: true,
-            color: _heartRateColor,
-            barWidth: 2,
-            dotData: const FlDotData(show: false),
-            belowBarData: BarAreaData(show: true, color: _heartRateColor.withOpacity(0.1)),
-          ),
-        ],
+    return BarChart(
+      BarChartData(
+        alignment: BarChartAlignment.spaceAround,
+        maxY: (_stats.max ?? 120) + 20,
+        minY: 0,
+        barGroups: barGroups,
         titlesData: FlTitlesData(
-          bottomTitles: AxisTitles(sideTitles: SideTitles(showTitles: true, getTitlesWidget: (value, meta) {
-            final date = DateTime.fromMillisecondsSinceEpoch(value.toInt());
-            String text = (_selectedSegment == 0) ? DateFormat.Hm().format(date) : DateFormat.Md().format(date);
-            return SideTitleWidget(axisSide: meta.axisSide, child: Text(text, style: _chartAxisLabelStyle));
-          }, interval: bottomTitleInterval)),
-          leftTitles: const AxisTitles(sideTitles: SideTitles(showTitles: true, reservedSize: 40)),
-          topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+          leftTitles: AxisTitles(
+            sideTitles: SideTitles(
+              showTitles: true,
+              reservedSize: 40,
+              interval: 24,
+              getTitlesWidget: (value, meta) => SideTitleWidget(
+                meta: meta,
+                child: Text(
+                  value.toInt().toString(),
+                  style: _chartAxisLabelStyle,
+                ),
+              ),
+            ),
+          ),
           rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+          topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+          bottomTitles: AxisTitles(
+            sideTitles: SideTitles(
+              showTitles: true,
+              reservedSize: 30,
+              interval: isDayView ? 6 : (_selectedSegment == 1 ? 1 : 5),
+              getTitlesWidget: (value, meta) {
+                if (isDayView) {
+                  // Show time labels for day view
+                  String text = '';
+                  switch (value.toInt()) {
+                    case 0: text = '00:00'; break;
+                    case 6: text = '06:00'; break;
+                    case 12: text = '12:00'; break;
+                    case 18: text = '18:00'; break;
+                    case 23: text = '00:00'; break;
+                  }
+                  return SideTitleWidget(
+                    meta: meta,
+                    child: Text(text, style: _chartAxisLabelStyle),
+                  );
+                } else {
+                  // Show date labels for week/month view
+                  final date = _chartStartTime!.add(Duration(days: value.toInt()));
+                  return SideTitleWidget(
+                    meta: meta,
+                    child: Text(
+                      DateFormat.Md().format(date),
+                      style: _chartAxisLabelStyle,
+                    ),
+                  );
+                }
+              },
+            ),
+          ),
         ),
-        gridData: const FlGridData(show: true),
-        borderData: FlBorderData(show: true),
+        gridData: FlGridData(
+          show: true,
+          drawVerticalLine: false,
+          horizontalInterval: 24,
+          getDrawingHorizontalLine: (value) {
+            return FlLine(
+              color: Colors.grey.withOpacity(0.3),
+              strokeWidth: 1,
+            );
+          },
+        ),
+        borderData: FlBorderData(
+          show: true,
+          border: Border(
+            left: BorderSide(color: Colors.grey.withOpacity(0.3)),
+            bottom: BorderSide(color: Colors.grey.withOpacity(0.3)),
+          ),
+        ),
       ),
     );
   }
@@ -297,7 +409,12 @@ class _HeartRateScreenState extends State<HeartRateScreen> {
           children: [
             _buildSegmentedControl(),
             const SizedBox(height: 16),
-            SizedBox(height: 200, child: _isLoading ? const Center(child: CircularProgressIndicator()) : _buildChart()),
+            SizedBox(
+                height: 200,
+                child: _isLoading
+                    ? const Center(child: CircularProgressIndicator())
+                    : _buildBarChart()
+            ),
             const SizedBox(height: 20),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceAround,
@@ -335,4 +452,14 @@ class _HeartRateScreenState extends State<HeartRateScreen> {
       ),
     );
   }
+}
+
+// Make sure you have the HealthStats class defined somewhere in your code
+class HealthStats {
+  final double? min;
+  final double? max;
+  final double? avg;
+  final HealthDataPoint? latest;
+
+  HealthStats({this.min, this.max, this.avg, this.latest});
 }

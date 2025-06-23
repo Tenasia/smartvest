@@ -46,7 +46,7 @@ class _StressLevelScreenState extends State<StressLevelScreen> {
   StreamSubscription? _dataSubscription;
 
   bool _isLoading = true;
-  String _aiSummary = _cachedStressSummary; // Initialize with cached value
+  String _aiSummary = _cachedStressSummary;
   List<Map<dynamic, dynamic>> _stressDataList = [];
 
   double _maxGsr = 0;
@@ -106,7 +106,7 @@ class _StressLevelScreenState extends State<StressLevelScreen> {
             _latestStressData = _stressDataList.last;
             _minGsr = min ?? 0;
             _maxGsr = max ?? 0;
-            _avgGsr = sum / _stressDataList.length;
+            _avgGsr = _stressDataList.isEmpty ? 0 : sum / _stressDataList.length;
           }
           _isLoading = false;
         });
@@ -117,14 +117,9 @@ class _StressLevelScreenState extends State<StressLevelScreen> {
   }
 
   Future<void> _generateAiSummary() async {
-    // ** Caching Logic: Check if a summary was generated less than an hour ago **
     if (_lastStressSummaryTimestamp != null &&
         DateTime.now().difference(_lastStressSummaryTimestamp!) < const Duration(hours: 1)) {
-      if (mounted) {
-        setState(() {
-          _aiSummary = _cachedStressSummary;
-        });
-      }
+      if (mounted) setState(() => _aiSummary = _cachedStressSummary);
       return;
     }
 
@@ -237,8 +232,13 @@ class _StressLevelScreenState extends State<StressLevelScreen> {
       return FlSpot(timestamp, gsr);
     }).toList();
 
+    final startTime = _stressDataList.first['parsedTimestamp'] as DateTime;
+    final endTime = _stressDataList.last['parsedTimestamp'] as DateTime;
+
     return LineChart(
       LineChartData(
+        minX: startTime.millisecondsSinceEpoch.toDouble(),
+        maxX: endTime.millisecondsSinceEpoch.toDouble(),
         lineBarsData: [
           LineChartBarData(
             spots: spots,
@@ -250,13 +250,20 @@ class _StressLevelScreenState extends State<StressLevelScreen> {
           ),
         ],
         titlesData: FlTitlesData(
-          bottomTitles: AxisTitles(sideTitles: SideTitles(showTitles: true, getTitlesWidget: (value, meta) {
-            final date = DateTime.fromMillisecondsSinceEpoch(value.toInt());
-            return SideTitleWidget(axisSide: meta.axisSide, child: Text(DateFormat.Hm().format(date), style: _chartAxisLabelStyle));
-          }, interval: (_stressDataList.last['parsedTimestamp'].millisecondsSinceEpoch - _stressDataList.first['parsedTimestamp'].millisecondsSinceEpoch) / 4)),
-          leftTitles: const AxisTitles(sideTitles: SideTitles(showTitles: true, reservedSize: 40)),
-          topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+          leftTitles: AxisTitles(sideTitles: SideTitles(showTitles: true, reservedSize: 40, getTitlesWidget: (val, meta) => SideTitleWidget(meta: meta, child: Text(val.toInt().toString(), style: _chartAxisLabelStyle)))),
           rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+          topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+          bottomTitles: AxisTitles(
+            sideTitles: SideTitles(
+              showTitles: true,
+              reservedSize: 22,
+              interval: (endTime.millisecondsSinceEpoch - startTime.millisecondsSinceEpoch) / 4,
+              getTitlesWidget: (value, meta) {
+                final date = DateTime.fromMillisecondsSinceEpoch(value.toInt());
+                return SideTitleWidget(meta: meta, child: Text(DateFormat.Hm().format(date), style: _chartAxisLabelStyle));
+              },
+            ),
+          ),
         ),
         gridData: const FlGridData(show: true),
         borderData: FlBorderData(show: true),
