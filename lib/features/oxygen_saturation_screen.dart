@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:smartvest/core/services/health_service.dart';
 import 'package:smartvest/core/services/gemini_service.dart';
+import 'package:smartvest/core/services/notification_service.dart';
 import 'package:health/health.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:intl/intl.dart';
@@ -53,6 +54,7 @@ class _OxygenSaturationScreenState extends State<OxygenSaturationScreen> {
   HealthStats _stats = HealthStats();
   String _aiSummary = _cachedSpo2Summary; // Initialize with cached value
   DateTime? _chartStartTime; // To store the start time for the chart's range
+  bool _hasSentLowSpo2Notification = false;
 
   @override
   void initState() {
@@ -60,44 +62,25 @@ class _OxygenSaturationScreenState extends State<OxygenSaturationScreen> {
     _fetchDataForSegment();
   }
 
-  Future<void> _generateAiSummary() async {
-    // ** Caching Logic: Check if a summary was generated less than an hour ago **
-    if (_lastSpo2SummaryTimestamp != null &&
-        DateTime.now().difference(_lastSpo2SummaryTimestamp!) < const Duration(hours: 1)) {
-      if (mounted) {
-        setState(() {
-          _aiSummary = _cachedSpo2Summary; // Use cached summary
-        });
-      }
-      return; // Exit without calling the API
+  void _checkSpo2Thresholds(HealthStats stats) {
+    if (stats.latest == null) return;
+
+    final latestValue = (stats.latest!.value as NumericHealthValue).numericValue.toDouble();
+    const lowThreshold = 99.0; // Low SpO2 in percent
+
+    if (latestValue < lowThreshold && !_hasSentLowSpo2Notification) {
+      NotificationService().showNotification(
+        id: 4, // Unique ID for SpO2 notifications
+        title: 'Low Blood Oxygen Detected',
+        body: 'Your latest SpO2 was ${latestValue.toStringAsFixed(1)}%. Please ensure you are in a well-ventilated area and resting.',
+      );
+      if (mounted) setState(() => _hasSentLowSpo2Notification = true);
+    } else if (latestValue >= lowThreshold && _hasSentLowSpo2Notification) {
+      if (mounted) setState(() => _hasSentLowSpo2Notification = false);
     }
-
-    if (_dataPoints.isEmpty) {
-      if(mounted) setState(() => _aiSummary = "Not enough data to generate a summary.");
-      return;
-    }
-
-    if (mounted) setState(() => _aiSummary = "Generating new summary...");
-
-    User? user = FirebaseAuth.instance.currentUser;
-    int? userAge;
-    if (user != null) {
-      final doc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
-      if (doc.exists && doc.data()!.containsKey('birthday')) {
-        final birthday = (doc.data()!['birthday'] as Timestamp).toDate();
-        userAge = DateTime.now().year - birthday.year;
-      }
-    }
-
-    final summary = await _geminiService.getHealthSummary("Blood Oxygen (SpO2)", _dataPoints, userAge);
-
-    // Update cache and timestamp
-    _cachedSpo2Summary = summary;
-    _lastSpo2SummaryTimestamp = DateTime.now();
-
-    if(mounted) setState(() => _aiSummary = summary);
   }
 
+  // --- MODIFY THIS METHOD ---
   Future<void> _fetchDataForSegment() async {
     if (!mounted) return;
     setState(() { _isLoading = true; });
@@ -128,20 +111,69 @@ class _OxygenSaturationScreenState extends State<OxygenSaturationScreen> {
       }
     }
 
+    final currentStats = HealthStats(
+      min: min,
+      max: max,
+      avg: points.isEmpty ? 0 : sum / points.length,
+      latest: points.isNotEmpty ? points.last : null,
+    );
+
     if (mounted) {
       setState(() {
         _dataPoints = points;
-        _stats = HealthStats(
-          min: min,
-          max: max,
-          avg: points.isEmpty ? 0 : sum / points.length,
-          latest: points.isNotEmpty ? points.last : null,
-        );
+        _stats = currentStats;
         _isLoading = false;
       });
 
+      // Check thresholds after fetching data
+      _checkSpo2Thresholds(currentStats);
+
       _generateAiSummary();
     }
+  }
+
+  Future<void> _generateAiSummary() async {
+    // ** Caching Logic: Check if a summary was generated less than an hour ago **
+    if (_lastSpo2SummaryTimestamp != null &&
+        DateTime.now().difference(_lastSpo2SummaryTimestamp!) <
+            const Duration(hours: 1)) {
+      if (mounted) {
+        setState(() {
+          _aiSummary = _cachedSpo2Summary; // Use cached summary
+        });
+      }
+      return; // Exit without calling the API
+    }
+
+    if (_dataPoints.isEmpty) {
+      if (mounted) setState(() =>
+      _aiSummary = "Not enough data to generate a summary.");
+      return;
+    }
+
+    if (mounted) setState(() => _aiSummary = "Generating new summary...");
+
+    User? user = FirebaseAuth.instance.currentUser;
+    int? userAge;
+    if (user != null) {
+      final doc = await FirebaseFirestore.instance.collection('users').doc(
+          user.uid).get();
+      if (doc.exists && doc.data()!.containsKey('birthday')) {
+        final birthday = (doc.data()!['birthday'] as Timestamp).toDate();
+        userAge = DateTime
+            .now()
+            .year - birthday.year;
+      }
+    }
+
+    final summary = await _geminiService.getHealthSummary(
+        "Blood Oxygen (SpO2)", _dataPoints, userAge);
+
+    // Update cache and timestamp
+    _cachedSpo2Summary = summary;
+    _lastSpo2SummaryTimestamp = DateTime.now();
+
+    if (mounted) setState(() => _aiSummary = summary);
   }
 
   double _calculateTitleInterval(DateTime start, DateTime end) {

@@ -1,27 +1,22 @@
+// lib/features/notifications.dart
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_database/firebase_database.dart';
+import 'package:smartvest/core/services/notification_service.dart';
 
-// Model for our notifications
-enum NotificationSeverity { info, warning, critical }
-
+// Model for our displayed notifications
 class AppNotification {
   final String id;
   final DateTime timestamp;
   final String title;
   final String details;
-  final NotificationSeverity severity;
-  final IconData icon;
 
   AppNotification({
     required this.id,
     required this.timestamp,
     required this.title,
     required this.details,
-    this.severity = NotificationSeverity.info,
-    required this.icon,
   });
 }
 
@@ -29,229 +24,195 @@ class NotificationsScreen extends StatefulWidget {
   const NotificationsScreen({super.key});
 
   @override
-  _NotificationsScreenState createState() => _NotificationsScreenState();
+  State<NotificationsScreen> createState() => _NotificationsScreenState();
 }
 
 class _NotificationsScreenState extends State<NotificationsScreen> {
-  List<AppNotification> _notifications = [];
+  final List<AppNotification> _notifications = [];
   bool _isLoading = true;
 
-  late DatabaseReference _databaseReference;
+  final DatabaseReference _dbRef = FirebaseDatabase.instance.ref('healthMonitor/data');
   StreamSubscription<DatabaseEvent>? _dataSubscription;
+
+  // State for alert logic
+  Timer? _postureAlertTimer;
+  Timer? _stressAlertTimer;
+  bool _isPoorPostureState = false;
+  bool _isHighStressState = false;
 
   @override
   void initState() {
     super.initState();
-    _initializeFirebase();
+    _listenToHealthData();
   }
 
-  void _initializeFirebase() async {
-    try {
-      // Stellen Sie sicher, dass Firebase initialisiert ist
-      await Firebase.initializeApp();
-      _databaseReference = FirebaseDatabase.instance.ref('smartVest/postureData');
-      _listenToPostureData();
-    } catch (e) {
-      print('Fehler bei der Initialisierung von Firebase: $e');
-      if (mounted) {
-        setState(() {
-          _isLoading = false;
-        });
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Fehler bei der Verbindung zur Datenbank.')),
-        );
-      }
-    }
-  }
+  void _listenToHealthData() {
+    if (_dataSubscription != null) return;
 
-  void _listenToPostureData() {
-    _dataSubscription = _databaseReference.onValue.listen((DatabaseEvent event) {
-      if (!mounted) return;
+    _dataSubscription = _dbRef.limitToLast(1).onValue.listen(
+          (DatabaseEvent event) {
+        if (!mounted || event.snapshot.value == null) return;
 
-      final data = event.snapshot.value;
-      if (data == null) {
-        setState(() {
-          _notifications = [];
-          _isLoading = false;
-        });
-        return;
-      }
+        setState(() { _isLoading = false; });
 
-      final List<AppNotification> newNotifications = [];
-      final postureDataMap = data as Map<dynamic, dynamic>;
+        final data = event.snapshot.value as Map<dynamic, dynamic>;
+        final latestData = data.values.first as Map<dynamic, dynamic>;
 
-      postureDataMap.forEach((key, value) {
-        final postureEntry = value as Map<dynamic, dynamic>;
-        final rulaAssessment = postureEntry['rulaAssessment']?.toString() ?? 'Unknown';
-        final timestampStr = postureEntry['timestamp']?.toString();
-
-        if (timestampStr != null) {
-          // Firebase-Zeitstempel ist wahrscheinlich in Millisekunden, umrechnen
-          final timestamp = DateTime.fromMillisecondsSinceEpoch(int.parse(timestampStr));
-          final notification = _createNotificationFromData(key, postureEntry, timestamp);
-          newNotifications.add(notification);
+        // Process Posture Data
+        if (latestData.containsKey('posture')) {
+          _handlePostureData(latestData['posture']);
         }
-      });
-
-      // Sortieren nach Zeitstempel, neueste zuerst
-      newNotifications.sort((a, b) => b.timestamp.compareTo(a.timestamp));
-
-      setState(() {
-        _notifications = newNotifications;
-        _isLoading = false;
-      });
-
-    }, onError: (error) {
-      print("Fehler beim Abhören von Daten: $error");
-      if (mounted) {
-        setState(() {
-          _isLoading = false;
-        });
-      }
-    });
-  }
-
-  AppNotification _createNotificationFromData(String id, Map<dynamic, dynamic> data, DateTime timestamp) {
-    final rulaAssessment = data['rulaAssessment']?.toString() ?? 'INFO';
-    final rulaScore = data['rulaScore'] ?? 0;
-    NotificationSeverity severity;
-    IconData icon;
-    String title;
-    String details;
-
-    switch (rulaAssessment.toUpperCase()) {
-      case 'FAIR':
-        severity = NotificationSeverity.warning;
-        icon = Icons.accessibility_new_rounded;
-        title = 'Posture Alert';
-        details = 'Sustained poor posture detected. RULA Score: $rulaScore. Please adjust your position.';
-        break;
-      case 'POOR':
-      case 'CRITICAL':
-        severity = NotificationSeverity.critical;
-        icon = Icons.warning_amber_rounded;
-        title = 'Critical Posture Warning!';
-        details = 'High-risk posture detected with a RULA score of $rulaScore. Immediate adjustment is required to prevent strain.';
-        break;
-      case 'GOOD':
-      default:
-        severity = NotificationSeverity.info;
-        icon = Icons.check_circle_outline;
-        title = 'Good Posture!';
-        details = 'Your posture is currently good. Keep it up! RULA Score: $rulaScore.';
-        break;
-    }
-
-    return AppNotification(
-      id: id,
-      timestamp: timestamp,
-      title: title,
-      details: details,
-      severity: severity,
-      icon: icon,
+        // Process Stress Data
+        if (latestData.containsKey('stress')) {
+          _handleStressData(latestData['stress']);
+        }
+      },
+      onError: (error) {
+        print("Error listening to Firebase: $error");
+        if (mounted) setState(() => _isLoading = false);
+      },
     );
   }
 
+  void _handlePostureData(Map<dynamic, dynamic> postureData) {
+    final assessment = postureData['rulaAssessment']?.toString().toUpperCase();
+
+    // Check if posture is poor
+    if (assessment == 'POOR' || assessment == 'CRITICAL') {
+      // If we are not already in a poor posture state, start the timer.
+      if (!_isPoorPostureState) {
+        setState(() => _isPoorPostureState = true);
+
+        // Cancel any existing timer to be safe
+        _postureAlertTimer?.cancel();
+        _postureAlertTimer = Timer(const Duration(minutes: 5), () {
+          // If the timer completes, it means posture was poor for 5 mins.
+          NotificationService().showNotification(
+            id: 1, // Unique ID for posture notifications
+            title: 'Posture Alert',
+            body: 'You have been in a poor posture for 5 minutes. Please adjust your position.',
+          );
+          // Add to the list shown on screen
+          _addNotificationToList('Posture Alert', 'Sustained poor posture detected. Consider taking a break to stretch.');
+          // Reset the state to allow for a new alert cycle
+          setState(() => _isPoorPostureState = false);
+        });
+      }
+    } else { // Posture is good
+      // If we were in a poor state, reset it and cancel the timer.
+      if (_isPoorPostureState) {
+        setState(() => _isPoorPostureState = false);
+        _postureAlertTimer?.cancel();
+      }
+    }
+  }
+
+  void _handleStressData(Map<dynamic, dynamic> stressData) {
+    final level = stressData['stressLevel']?.toString().toUpperCase();
+
+    // Check if stress is high
+    if (level == 'HIGH_STRESS' || level == 'MILD_STRESS') {
+      if (!_isHighStressState) {
+        setState(() => _isHighStressState = true);
+
+        _stressAlertTimer?.cancel();
+        _stressAlertTimer = Timer(const Duration(minutes: 5), () {
+          NotificationService().showNotification(
+            id: 2, // Unique ID for stress notifications
+            title: 'Stress Level Alert',
+            body: 'Your stress levels have been elevated for 5 minutes. Try taking a few deep breaths.',
+          );
+          _addNotificationToList('Stress Alert', 'Elevated stress detected. A short break or a mindfulness exercise could help.');
+          setState(() => _isHighStressState = false);
+        });
+      }
+    } else { // Stress is relaxed
+      if (_isHighStressState) {
+        setState(() => _isHighStressState = false);
+        _stressAlertTimer?.cancel();
+      }
+    }
+  }
+
+  void _addNotificationToList(String title, String details) {
+    if (!mounted) return;
+    setState(() {
+      _notifications.insert(
+        0,
+        AppNotification(
+          id: DateTime.now().millisecondsSinceEpoch.toString(),
+          timestamp: DateTime.now(),
+          title: title,
+          details: details,
+        ),
+      );
+    });
+  }
 
   @override
   void dispose() {
     _dataSubscription?.cancel();
+    _postureAlertTimer?.cancel();
+    _stressAlertTimer?.cancel();
     super.dispose();
-  }
-
-  Color _getSeverityColor(NotificationSeverity severity) {
-    switch (severity) {
-      case NotificationSeverity.critical:
-        return Colors.redAccent.shade200;
-      case NotificationSeverity.warning:
-        return Colors.orange.shade400;
-      case NotificationSeverity.info:
-      default:
-        return Colors.blue.shade300;
-    }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Notifications'),
+        title: const Text('Alerts & Notifications'),
+        automaticallyImplyLeading: false,
+        centerTitle: true,
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : _notifications.isEmpty
           ? const Center(
-        child: Text(
-          "No new notifications.",
-          style: TextStyle(fontSize: 18, color: Colors.grey),
+        child: Padding(
+          padding: EdgeInsets.all(20.0),
+          child: Text(
+            "No new notifications.\n\nThis screen will show alerts for sustained poor posture or high stress.",
+            style: TextStyle(fontSize: 18, color: Colors.grey),
+            textAlign: TextAlign.center,
+          ),
         ),
       )
-          : ListView.separated(
+          : ListView.builder(
         padding: const EdgeInsets.all(12.0),
         itemCount: _notifications.length,
-        separatorBuilder: (context, index) => const SizedBox(height: 10),
         itemBuilder: (context, index) {
           final notification = _notifications[index];
           return Card(
-            elevation: 3.0,
+            elevation: 2.0,
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(10.0),
-              side: BorderSide(
-                color: _getSeverityColor(notification.severity).withOpacity(0.7),
-                width: 1.2,
-              ),
             ),
             child: ListTile(
               contentPadding: const EdgeInsets.all(16.0),
-              leading: Container(
-                padding: const EdgeInsets.all(8.0),
-                decoration: BoxDecoration(
-                  color: _getSeverityColor(notification.severity).withOpacity(0.15),
-                  shape: BoxShape.circle,
-                ),
-                child: Icon(
-                  notification.icon,
-                  color: _getSeverityColor(notification.severity),
-                  size: 28,
-                ),
+              leading: Icon(
+                notification.title.contains("Posture")
+                    ? Icons.accessibility_new_rounded
+                    : Icons.sentiment_very_dissatisfied,
+                color: Theme.of(context).primaryColor,
+                size: 32,
               ),
               title: Text(
                 notification.title,
-                style: TextStyle(
-                  fontWeight: FontWeight.bold,
-                  fontSize: 16,
-                  color: Theme.of(context).textTheme.bodyLarge?.color,
-                ),
+                style: const TextStyle(fontWeight: FontWeight.bold),
               ),
               subtitle: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const SizedBox(height: 6.0),
-                  Text(
-                    notification.details,
-                    style: TextStyle(
-                        fontSize: 14,
-                        color: Theme.of(context).textTheme.bodyMedium?.color?.withOpacity(0.8),
-                        height: 1.4
-                    ),
-                  ),
+                  const SizedBox(height: 4.0),
+                  Text(notification.details),
                   const SizedBox(height: 8.0),
                   Text(
-                    DateFormat('MMM d, yyyy hh:mm a').format(notification.timestamp),
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: Colors.grey.shade600,
-                    ),
+                    DateFormat('MMM d, hh:mm a').format(notification.timestamp),
+                    style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
                   ),
                 ],
               ),
-              isThreeLine: true, // Ermöglicht mehr Platz für den Untertitel
-              onTap: () {
-                // Optional: Tippen für weitere Details oder Navigation handhaben
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text('Alert Type: ${notification.title}')),
-                );
-              },
             ),
           );
         },

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:smartvest/core/services/health_service.dart';
 import 'package:smartvest/core/services/gemini_service.dart';
+import 'package:smartvest/core/services/notification_service.dart';
 import 'package:health/health.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:intl/intl.dart';
@@ -53,10 +54,85 @@ class _HeartRateScreenState extends State<HeartRateScreen> {
   String _aiSummary = _cachedHeartRateSummary;
   DateTime? _chartStartTime;
 
+  // State to prevent notification spam
+  bool _hasSentHighHRNotification = false;
+
   @override
   void initState() {
     super.initState();
     _fetchDataForSegment();
+  }
+
+  void _checkHeartRateThresholds(HealthStats stats) {
+    if (stats.latest == null) return;
+
+    final latestValue = (stats.latest!.value as NumericHealthValue).numericValue.toDouble();
+    const highThreshold = 50.0; // High resting heart rate in BPM
+
+    if (latestValue > highThreshold && !_hasSentHighHRNotification) {
+      NotificationService().showNotification(
+        id: 3, // Unique ID for HR notifications
+        title: 'High Heart Rate Detected',
+        body: 'Your latest heart rate was ${latestValue.toStringAsFixed(0)} BPM. Consider resting for a moment.',
+      );
+      // Set flag to true to avoid sending another notification immediately
+      if (mounted) setState(() => _hasSentHighHRNotification = true);
+    } else if (latestValue <= highThreshold && _hasSentHighHRNotification) {
+      // Reset the flag if the heart rate returns to normal
+      if (mounted) setState(() => _hasSentHighHRNotification = false);
+    }
+  }
+
+  // --- MODIFY THIS METHOD ---
+  Future<void> _fetchDataForSegment() async {
+    if (!mounted) return;
+    setState(() { _isLoading = true; });
+
+    final now = DateTime.now();
+    DateTime startTime;
+
+    switch (_selectedSegment) {
+      case 0: startTime = DateTime(now.year, now.month, now.day); break;
+      case 1: startTime = now.subtract(const Duration(days: 7)); break;
+      case 2: startTime = now.subtract(const Duration(days: 30)); break;
+      default: startTime = DateTime(now.year, now.month, now.day);
+    }
+    _chartStartTime = startTime;
+
+    final points = await _healthService.getHealthData(startTime, now, HealthDataType.HEART_RATE);
+
+    double? min, max;
+    double sum = 0;
+
+    if (points.isNotEmpty) {
+      points.sort((a,b) => a.dateFrom.compareTo(b.dateFrom));
+      for (var p in points) {
+        final value = (p.value as NumericHealthValue).numericValue.toDouble();
+        sum += value;
+        if (min == null || value < min) min = value;
+        if (max == null || value > max) max = value;
+      }
+    }
+
+    final currentStats = HealthStats(
+      min: min,
+      max: max,
+      avg: points.isEmpty ? 0 : sum / points.length,
+      latest: points.isNotEmpty ? points.last : null,
+    );
+
+    if (mounted) {
+      setState(() {
+        _dataPoints = points;
+        _stats = currentStats; // Use the calculated stats
+        _isLoading = false;
+      });
+
+      // Check thresholds after fetching data
+      _checkHeartRateThresholds(currentStats);
+
+      _generateAiSummary();
+    }
   }
 
   Future<void> _generateAiSummary() async {
@@ -91,52 +167,6 @@ class _HeartRateScreenState extends State<HeartRateScreen> {
     _lastHeartRateSummaryTimestamp = DateTime.now();
 
     if(mounted) setState(() => _aiSummary = summary);
-  }
-
-  Future<void> _fetchDataForSegment() async {
-    if (!mounted) return;
-    setState(() { _isLoading = true; });
-
-    final now = DateTime.now();
-    DateTime startTime;
-
-    switch (_selectedSegment) {
-      case 0: startTime = DateTime(now.year, now.month, now.day); break;
-      case 1: startTime = now.subtract(const Duration(days: 7)); break;
-      case 2: startTime = now.subtract(const Duration(days: 30)); break;
-      default: startTime = DateTime(now.year, now.month, now.day);
-    }
-    _chartStartTime = startTime;
-
-    final points = await _healthService.getHealthData(startTime, now, HealthDataType.HEART_RATE);
-
-    double? min, max;
-    double sum = 0;
-
-    if (points.isNotEmpty) {
-      points.sort((a,b) => a.dateFrom.compareTo(b.dateFrom));
-      for (var p in points) {
-        final value = (p.value as NumericHealthValue).numericValue.toDouble();
-        sum += value;
-        if (min == null || value < min) min = value;
-        if (max == null || value > max) max = value;
-      }
-    }
-
-    if (mounted) {
-      setState(() {
-        _dataPoints = points;
-        _stats = HealthStats(
-          min: min,
-          max: max,
-          avg: points.isEmpty ? 0 : sum / points.length,
-          latest: points.isNotEmpty ? points.last : null,
-        );
-        _isLoading = false;
-      });
-
-      _generateAiSummary();
-    }
   }
 
   // --- WIDGETS ---
@@ -278,7 +308,7 @@ class _HeartRateScreenState extends State<HeartRateScreen> {
                   topRight: Radius.circular(2),
                 ),
               ),
-            ],
+            ], // test
           ),
         );
       }

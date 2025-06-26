@@ -30,6 +30,7 @@ dependencies:
   permission_handler: ^12.0.0+1
   http: ^1.2.1 # ADDED for API calls
   flutter_markdown: ^0.7.3 # ADDED for rendering AI response
+  flutter_local_notifications: ^17.1.2 # ADD THIS LINE
 
 dev_dependencies:
   flutter_test:
