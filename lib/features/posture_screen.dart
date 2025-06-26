@@ -83,9 +83,11 @@ class _PostureScreenState extends State<PostureScreen> {
 
       dataMap.forEach((key, value) {
         final entry = value as Map<dynamic, dynamic>;
-        final timestampStr = entry['timestamp']?.toString();
-        if (timestampStr != null) {
-          entry['parsedTimestamp'] = DateTime.fromMillisecondsSinceEpoch(int.parse(timestampStr));
+        // Use epochTime field or fall back to the key (which is also an epoch time in seconds)
+        final epochSeconds = entry['epochTime'] as int? ?? int.tryParse(key.toString());
+
+        if (epochSeconds != null) {
+          entry['parsedTimestamp'] = DateTime.fromMillisecondsSinceEpoch(epochSeconds * 1000);
           tempList.add(entry);
         }
       });
@@ -93,20 +95,24 @@ class _PostureScreenState extends State<PostureScreen> {
       tempList.sort((a, b) => a['parsedTimestamp'].compareTo(b['parsedTimestamp']));
 
       for (var entry in tempList) {
-        final score = entry['posture']?['rulaScore']?.toDouble() ?? 0.0;
-        sum += score;
-        if (min == null || score < min) min = score;
-        if (max == null || score > max) max = score;
+        if (entry.containsKey('posture') && entry['posture'] != null) {
+          final score = entry['posture']?['rulaScore']?.toDouble() ?? 0.0;
+          sum += score;
+          if (min == null || score < min) min = score;
+          if (max == null || score > max) max = score;
+        }
       }
+
+      final postureEntries = tempList.where((e) => e.containsKey('posture')).toList();
 
       if(mounted) {
         setState(() {
           _postureDataList = tempList;
-          if (_postureDataList.isNotEmpty) {
-            _latestPostureData = _postureDataList.last;
+          if (postureEntries.isNotEmpty) {
+            _latestPostureData = postureEntries.last;
             _minScore = min ?? 0;
             _maxScore = max ?? 0;
-            _avgScore = _postureDataList.isEmpty ? 0 : sum / _postureDataList.length;
+            _avgScore = postureEntries.isEmpty ? 0 : sum / postureEntries.length;
           }
           _isLoading = false;
         });
@@ -122,14 +128,15 @@ class _PostureScreenState extends State<PostureScreen> {
       return;
     }
 
-    if (_postureDataList.isEmpty || !mounted) {
+    final relevantData = _postureDataList.where((d) => d.containsKey('posture')).toList();
+    if (relevantData.isEmpty || !mounted) {
       if (mounted) setState(() => _aiSummary = "Not enough data to generate a summary.");
       return;
     }
 
     if (mounted) setState(() { _aiSummary = "Generating new summary..."; });
 
-    final dataSummaryString = _postureDataList.map((data) {
+    final dataSummaryString = relevantData.map((data) {
       final score = data['posture']?['rulaScore'] ?? '?';
       final time = DateFormat.Hm().format(data['parsedTimestamp']);
       return "Score $score at $time";
@@ -226,18 +233,19 @@ class _PostureScreenState extends State<PostureScreen> {
   }
 
   Widget _buildChart() {
-    if (_postureDataList.isEmpty) {
+    final chartData = _postureDataList.where((d) => d.containsKey('posture')).toList();
+    if (chartData.isEmpty) {
       return const Center(child: Text("No posture data available."));
     }
 
-    final spots = _postureDataList.map((data) {
+    final spots = chartData.map((data) {
       final score = data['posture']?['rulaScore']?.toDouble() ?? 0.0;
       final timestamp = (data['parsedTimestamp'] as DateTime).millisecondsSinceEpoch.toDouble();
       return FlSpot(timestamp, score);
     }).toList();
 
-    final startTime = _postureDataList.first['parsedTimestamp'] as DateTime;
-    final endTime = _postureDataList.last['parsedTimestamp'] as DateTime;
+    final startTime = chartData.first['parsedTimestamp'] as DateTime;
+    final endTime = chartData.last['parsedTimestamp'] as DateTime;
 
     return LineChart(
       LineChartData(

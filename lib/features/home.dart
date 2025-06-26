@@ -112,9 +112,15 @@ class _HomeScreenState extends State<HomeScreen> {
     _healthMonitorSubscription = databaseReference.limitToLast(1).onValue.listen((event) {
       if (event.snapshot.value != null && mounted) {
         final data = event.snapshot.value as Map<dynamic, dynamic>;
-        final latestEntry = data.values.first;
+        final String latestKey = data.keys.first;
+        final latestEntry = data.values.first as Map<dynamic, dynamic>?;
+
+        if (latestEntry != null) {
+          // Add the key as 'epochTime' for consistent processing
+          latestEntry['epochTime'] = int.tryParse(latestKey) ?? 0;
+        }
         setState(() {
-          _latestHealthData = latestEntry as Map<dynamic, dynamic>?;
+          _latestHealthData = latestEntry;
         });
       }
     }, onError: (error) {
@@ -159,17 +165,21 @@ class _HomeScreenState extends State<HomeScreen> {
   /// Checks if the provided sensor data object has a timestamp from today.
   bool _isDataFromToday(Map<dynamic, dynamic>? data) {
     if (data == null) return false;
-    final timestampStr = data['timestamp']?.toString();
-    if (timestampStr == null) return false;
+    // The new data has an 'epochTime' field with seconds since epoch.
+    final epochSeconds = data['epochTime'];
+    if (epochSeconds == null || epochSeconds is! int) {
+      return false;
+    }
 
     try {
-      final dataTimestamp = DateTime.fromMillisecondsSinceEpoch(int.parse(timestampStr));
+      // Convert epoch seconds to milliseconds for DateTime constructor
+      final dataTimestamp = DateTime.fromMillisecondsSinceEpoch(epochSeconds * 1000);
       final now = DateTime.now();
       return dataTimestamp.year == now.year &&
           dataTimestamp.month == now.month &&
           dataTimestamp.day == now.day;
     } catch (e) {
-      // Error parsing timestamp, treat as not from today
+      print("Error parsing timestamp in _isDataFromToday: $e");
       return false;
     }
   }

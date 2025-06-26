@@ -83,16 +83,19 @@ class _StressLevelScreenState extends State<StressLevelScreen> {
 
       dataMap.forEach((key, value) {
         final entry = value as Map<dynamic, dynamic>;
-        final timestampStr = entry['timestamp']?.toString();
-        if (timestampStr != null) {
-          entry['parsedTimestamp'] = DateTime.fromMillisecondsSinceEpoch(int.parse(timestampStr));
+          // Use epochTime field or fall back to the key (which is also an epoch time in seconds)
+        final epochSeconds = entry['epochTime'] as int? ?? int.tryParse(key.toString());
+        if (epochSeconds != null) {
+          entry['parsedTimestamp'] = DateTime.fromMillisecondsSinceEpoch(epochSeconds * 1000);
           tempList.add(entry);
         }
       });
 
       tempList.sort((a, b) => a['parsedTimestamp'].compareTo(b['parsedTimestamp']));
 
-      for (var entry in tempList) {
+      final stressEntries = tempList.where((e) => e.containsKey('stress')).toList();
+
+      for (var entry in stressEntries) {
         final gsr = entry['stress']?['gsrReading']?.toDouble() ?? 0.0;
         sum += gsr;
         if (min == null || gsr < min) min = gsr;
@@ -102,11 +105,11 @@ class _StressLevelScreenState extends State<StressLevelScreen> {
       if(mounted) {
         setState(() {
           _stressDataList = tempList;
-          if (_stressDataList.isNotEmpty) {
-            _latestStressData = _stressDataList.last;
+          if (stressEntries.isNotEmpty) {
+            _latestStressData = stressEntries.last;
             _minGsr = min ?? 0;
             _maxGsr = max ?? 0;
-            _avgGsr = _stressDataList.isEmpty ? 0 : sum / _stressDataList.length;
+            _avgGsr = stressEntries.isEmpty ? 0 : sum / stressEntries.length;
           }
           _isLoading = false;
         });
@@ -123,14 +126,15 @@ class _StressLevelScreenState extends State<StressLevelScreen> {
       return;
     }
 
-    if (_stressDataList.isEmpty || !mounted) {
+    final relevantData = _stressDataList.where((d) => d.containsKey('stress')).toList();
+    if (relevantData.isEmpty || !mounted) {
       if (mounted) setState(() => _aiSummary = "Not enough data to generate a summary.");
       return;
     }
 
     if (mounted) setState(() { _aiSummary = "Generating new summary..."; });
 
-    final dataSummaryString = _stressDataList.map((data) {
+    final dataSummaryString = relevantData.map((data) {
       final gsr = data['stress']?['gsrReading'] ?? '?';
       final level = data['stress']?['stressLevel'] ?? 'UNKNOWN';
       final time = DateFormat.Hm().format(data['parsedTimestamp']);
@@ -222,18 +226,19 @@ class _StressLevelScreenState extends State<StressLevelScreen> {
   }
 
   Widget _buildChart() {
-    if (_stressDataList.isEmpty) {
+    final chartData = _stressDataList.where((d) => d.containsKey('stress')).toList();
+    if (chartData.isEmpty) {
       return const Center(child: Text("No stress data available."));
     }
 
-    final spots = _stressDataList.map((data) {
+    final spots = chartData.map((data) {
       final gsr = data['stress']?['gsrReading']?.toDouble() ?? 0.0;
       final timestamp = (data['parsedTimestamp'] as DateTime).millisecondsSinceEpoch.toDouble();
       return FlSpot(timestamp, gsr);
     }).toList();
 
-    final startTime = _stressDataList.first['parsedTimestamp'] as DateTime;
-    final endTime = _stressDataList.last['parsedTimestamp'] as DateTime;
+    final startTime = chartData.first['parsedTimestamp'] as DateTime;
+    final endTime = chartData.last['parsedTimestamp'] as DateTime;
 
     return LineChart(
       LineChartData(
