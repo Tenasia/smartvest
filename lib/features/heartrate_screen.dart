@@ -1,14 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:smartvest/core/services/health_service.dart';
 import 'package:smartvest/core/services/gemini_service.dart';
-import 'package:smartvest/core/services/notification_service.dart';
+// import 'package:smartvest/core/services/notification_service.dart'; // No longer needed here
 import 'package:health/health.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:intl/intl.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'dart:math';
+import 'dart:async'; // Import Timer
 
 // --- Caching for AI Summary ---
 String _cachedHeartRateSummary = "Generating summary...";
@@ -53,35 +53,28 @@ class _HeartRateScreenState extends State<HeartRateScreen> {
   HealthStats _stats = HealthStats();
   String _aiSummary = _cachedHeartRateSummary;
   DateTime? _chartStartTime;
+  Timer? _periodicTimer;
 
-  // State to prevent notification spam
-  bool _hasSentHighHRNotification = false;
 
   @override
   void initState() {
     super.initState();
     _fetchDataForSegment();
+    // Add a timer to refresh the data on this screen automatically
+    _periodicTimer = Timer.periodic(const Duration(minutes: 1), (timer) {
+      if(mounted) {
+        _fetchDataForSegment();
+      }
+    });
   }
 
-  void _checkHeartRateThresholds(HealthStats stats) {
-    if (stats.latest == null) return;
-
-    final latestValue = (stats.latest!.value as NumericHealthValue).numericValue.toDouble();
-    const highThreshold = 50.0; // High resting heart rate in BPM
-
-    if (latestValue > highThreshold && !_hasSentHighHRNotification) {
-      NotificationService().showNotification(
-        id: 3, // Unique ID for HR notifications
-        title: 'High Heart Rate Detected',
-        body: 'Your latest heart rate was ${latestValue.toStringAsFixed(0)} BPM. Consider resting for a moment.',
-      );
-      // Set flag to true to avoid sending another notification immediately
-      if (mounted) setState(() => _hasSentHighHRNotification = true);
-    } else if (latestValue <= highThreshold && _hasSentHighHRNotification) {
-      // Reset the flag if the heart rate returns to normal
-      if (mounted) setState(() => _hasSentHighHRNotification = false);
-    }
+  @override
+  void dispose() {
+    _periodicTimer?.cancel();
+    super.dispose();
   }
+
+  // REMOVED _checkHeartRateThresholds method from here
 
   // --- MODIFY THIS METHOD ---
   Future<void> _fetchDataForSegment() async {
@@ -128,9 +121,7 @@ class _HeartRateScreenState extends State<HeartRateScreen> {
         _isLoading = false;
       });
 
-      // Check thresholds after fetching data
-      _checkHeartRateThresholds(currentStats);
-
+      // REMOVED threshold check call
       _generateAiSummary();
     }
   }
@@ -169,7 +160,7 @@ class _HeartRateScreenState extends State<HeartRateScreen> {
     if(mounted) setState(() => _aiSummary = summary);
   }
 
-  // --- WIDGETS ---
+  // --- WIDGETS (No changes needed below this line in this file) ---
   Widget _buildSummaryCard(String title, String summary, IconData icon, Color iconColor) {
     return Card(
       elevation: _cardElevation,
@@ -482,14 +473,4 @@ class _HeartRateScreenState extends State<HeartRateScreen> {
       ),
     );
   }
-}
-
-// Make sure you have the HealthStats class defined somewhere in your code
-class HealthStats {
-  final double? min;
-  final double? max;
-  final double? avg;
-  final HealthDataPoint? latest;
-
-  HealthStats({this.min, this.max, this.avg, this.latest});
 }

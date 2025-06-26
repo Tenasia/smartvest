@@ -1,13 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:smartvest/core/services/health_service.dart';
 import 'package:smartvest/core/services/gemini_service.dart';
-import 'package:smartvest/core/services/notification_service.dart';
+// import 'package:smartvest/core/services/notification_service.dart'; // No longer needed here
 import 'package:health/health.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:intl/intl.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'dart:async'; // Import Timer
 
 // --- Caching for AI Summary ---
 String _cachedSpo2Summary = "Generating summary...";
@@ -54,31 +55,27 @@ class _OxygenSaturationScreenState extends State<OxygenSaturationScreen> {
   HealthStats _stats = HealthStats();
   String _aiSummary = _cachedSpo2Summary; // Initialize with cached value
   DateTime? _chartStartTime; // To store the start time for the chart's range
-  bool _hasSentLowSpo2Notification = false;
+  Timer? _periodicTimer;
 
   @override
   void initState() {
     super.initState();
     _fetchDataForSegment();
+    // Add a timer to refresh the data on this screen automatically
+    _periodicTimer = Timer.periodic(const Duration(minutes: 1), (timer) {
+      if(mounted) {
+        _fetchDataForSegment();
+      }
+    });
   }
 
-  void _checkSpo2Thresholds(HealthStats stats) {
-    if (stats.latest == null) return;
-
-    final latestValue = (stats.latest!.value as NumericHealthValue).numericValue.toDouble();
-    const lowThreshold = 99.0; // Low SpO2 in percent
-
-    if (latestValue < lowThreshold && !_hasSentLowSpo2Notification) {
-      NotificationService().showNotification(
-        id: 4, // Unique ID for SpO2 notifications
-        title: 'Low Blood Oxygen Detected',
-        body: 'Your latest SpO2 was ${latestValue.toStringAsFixed(1)}%. Please ensure you are in a well-ventilated area and resting.',
-      );
-      if (mounted) setState(() => _hasSentLowSpo2Notification = true);
-    } else if (latestValue >= lowThreshold && _hasSentLowSpo2Notification) {
-      if (mounted) setState(() => _hasSentLowSpo2Notification = false);
-    }
+  @override
+  void dispose() {
+    _periodicTimer?.cancel();
+    super.dispose();
   }
+
+  // REMOVED _checkSpo2Thresholds method from here
 
   // --- MODIFY THIS METHOD ---
   Future<void> _fetchDataForSegment() async {
@@ -125,9 +122,7 @@ class _OxygenSaturationScreenState extends State<OxygenSaturationScreen> {
         _isLoading = false;
       });
 
-      // Check thresholds after fetching data
-      _checkSpo2Thresholds(currentStats);
-
+      // REMOVED threshold check call
       _generateAiSummary();
     }
   }
@@ -185,7 +180,7 @@ class _OxygenSaturationScreenState extends State<OxygenSaturationScreen> {
     }
   }
 
-  // --- WIDGETS ---
+  // --- WIDGETS (No changes needed below this line in this file) ---
   Widget _buildSummaryCard(String title, String summary, IconData icon, Color iconColor) {
     return Card(
       elevation: _cardElevation,

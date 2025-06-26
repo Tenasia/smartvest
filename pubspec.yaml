@@ -31,6 +31,7 @@ dependencies:
   http: ^1.2.1 # ADDED for API calls
   flutter_markdown: ^0.7.3 # ADDED for rendering AI response
   flutter_local_notifications: ^17.1.2 # ADD THIS LINE
+  flutter_background_service: ^5.1.0
 
 dev_dependencies:
   flutter_test:

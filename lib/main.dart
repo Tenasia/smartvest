@@ -1,22 +1,24 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:smartvest/config/app_routes.dart';
-import 'features/auth/login.dart'; // Ensure LoginScreen is imported
+import 'package:smartvest/core/services/background_service.dart';
+import 'package:smartvest/core/services/notification_service.dart';
+import 'features/auth/login.dart';
 import 'firebase_options.dart';
 
 void main() async {
-  // This is the core of the fix. We wrap the initialization in a try-catch block.
   try {
     WidgetsFlutterBinding.ensureInitialized();
+
+    await NotificationService().init();
+    await initializeService();
+
     await Firebase.initializeApp(
       options: DefaultFirebaseOptions.currentPlatform,
     );
-    // If Firebase initializes successfully, run the main app.
     runApp(const MyApp());
   } catch (e) {
-    // If an error occurs during initialization, run an error screen instead.
-    // This prevents the white screen crash.
-    print("Failed to initialize Firebase: $e");
+    print("Failed to initialize app: $e");
     runApp(ErrorApp(errorMessage: e.toString()));
   }
 }
@@ -27,15 +29,14 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
+      // The navigatorKey is no longer needed for the background service
       title: 'SmartVest',
-      initialRoute: AppRoutes.login, // Your initial route
+      initialRoute: AppRoutes.login,
       routes: AppRoutes.routes,
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
         useMaterial3: true,
       ),
-      // The 'home' property is redundant when 'initialRoute' is used,
-      // but we'll leave it pointing to LoginScreen as a fallback.
       home: const LoginScreen(),
     );
   }
