@@ -1,6 +1,7 @@
 // lib/core/services/notification_service.dart
 import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'dart:typed_data'; // <-- IMPORT THIS for the vibration pattern
 
 // Define channel IDs as constants to avoid typos
 const String highImportanceChannelId = 'smartvest_alerts_high';
@@ -28,6 +29,8 @@ class NotificationService {
       highImportanceChannelName,
       description: highImportanceChannelDesc,
       importance: Importance.max, // Use max importance for pop-ups
+      enableVibration: true,
+      playSound: true,
     );
 
     // Create the low-importance channel for the foreground service
@@ -86,14 +89,26 @@ class NotificationService {
     required String body,
     String? payload,
   }) async {
+    // Define a custom vibration pattern:
+    // [delay, vibrate, pause, vibrate, pause, vibrate...]
+    // This pattern is: wait 0ms, vibrate 500ms, pause 500ms, vibrate 500ms
+    final Int64List vibrationPattern = Int64List(4);
+    vibrationPattern[0] = 0;
+    vibrationPattern[1] = 500;
+    vibrationPattern[2] = 500;
+    vibrationPattern[3] = 500;
+
     final AndroidNotificationDetails androidNotificationDetails =
-    const AndroidNotificationDetails(
+    AndroidNotificationDetails(
       highImportanceChannelId, // Use the high-importance channel ID
       highImportanceChannelName,
       channelDescription: highImportanceChannelDesc,
       importance: Importance.max,
       priority: Priority.high,
       ticker: 'ticker',
+      playSound: true,
+      enableVibration: true, // <-- Explicitly enable vibration
+      vibrationPattern: vibrationPattern, // <-- Apply the custom pattern
     );
 
     NotificationDetails notificationDetails = NotificationDetails(
@@ -103,6 +118,7 @@ class NotificationService {
 
     await _notificationsPlugin.show(id, title, body, notificationDetails, payload: payload);
   }
+
 
   // NEW: Method specifically for the persistent foreground service notification
   Future<void> showForegroundServiceNotification({

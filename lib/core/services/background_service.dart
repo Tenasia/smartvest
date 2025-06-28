@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math';
 import 'dart:ui';
 
 import 'package:cloud_firestore/cloud_firestore.dart'; // Import Firestore
@@ -48,17 +49,16 @@ Future<bool> onIosBackground(ServiceInstance service) async {
 @pragma('vm:entry-point')
 void onStart(ServiceInstance service) async {
   DartPluginRegistrant.ensureInitialized();
-
   await Firebase.initializeApp();
 
-  // Use your singleton NotificationService instance
   final NotificationService notificationService = NotificationService();
-  final HealthService healthService = HealthService();
+  final HealthService healthService = HealthService(); // Re-enable the real health service
 
   bool hasSentHighHRNotification = false;
   bool hasSentLowSpo2Notification = false;
 
-  Timer.periodic(const Duration(seconds: 5), (timer) async {
+  // Set back to 1 minute for normal operation
+  Timer.periodic(const Duration(minutes: 1), (timer) async {
     final now = DateTime.now();
     final startTime = now.subtract(const Duration(minutes: 10));
 
@@ -67,14 +67,15 @@ void onStart(ServiceInstance service) async {
       return;
     }
 
+    // --- Live Heart Rate Monitoring ---
     try {
       final hrPoints = await healthService.getHealthData(startTime, now, HealthDataType.HEART_RATE);
       if (hrPoints.isNotEmpty) {
         hrPoints.sort((a, b) => b.dateFrom.compareTo(a.dateFrom));
         final latestValue = (hrPoints.first.value as NumericHealthValue).numericValue.toDouble();
 
-        // Use a more realistic threshold for high heart rate
-        const highThreshold = 90.0;
+        // Set threshold back to a normal alert level
+        const double highThreshold = 100.0;
 
         if (latestValue > highThreshold && !hasSentHighHRNotification) {
           final notificationData = {
@@ -83,9 +84,8 @@ void onStart(ServiceInstance service) async {
             'timestamp': FieldValue.serverTimestamp(),
           };
           _saveNotificationToFirestore(currentUser.uid, notificationData);
-          // Use the new high-priority alert method
           notificationService.showHighPriorityAlert(
-            id: 3, // Unique ID for this type of alert
+            id: 3,
             title: notificationData['title'] as String,
             body: notificationData['details'] as String,
           );
@@ -94,16 +94,19 @@ void onStart(ServiceInstance service) async {
           hasSentHighHRNotification = false;
         }
       }
-    } catch (e) { print("Background Service Error (HR): $e"); }
+    } catch (e) {
+      print("Background Service Error (HR): $e");
+    }
 
+    // --- Live SpO2 Monitoring ---
     try {
       final spo2Points = await healthService.getHealthData(startTime, now, HealthDataType.BLOOD_OXYGEN);
       if (spo2Points.isNotEmpty) {
         spo2Points.sort((a, b) => b.dateFrom.compareTo(a.dateFrom));
         final latestValue = (spo2Points.first.value as NumericHealthValue).numericValue.toDouble();
 
-        // Use a more realistic threshold for low blood oxygen
-        const lowThreshold = 97.0;
+        // Set threshold back to a normal alert level
+        const double lowThreshold = 95.0;
 
         if (latestValue < lowThreshold && !hasSentLowSpo2Notification) {
           final notificationData = {
@@ -112,9 +115,8 @@ void onStart(ServiceInstance service) async {
             'timestamp': FieldValue.serverTimestamp(),
           };
           _saveNotificationToFirestore(currentUser.uid, notificationData);
-          // Use the new high-priority alert method
           notificationService.showHighPriorityAlert(
-            id: 4, // Unique ID for this type of alert
+            id: 4,
             title: notificationData['title'] as String,
             body: notificationData['details'] as String,
           );
@@ -123,13 +125,15 @@ void onStart(ServiceInstance service) async {
           hasSentLowSpo2Notification = false;
         }
       }
-    } catch (e) { print("Background Service Error (SpO2): $e"); }
+    } catch (e) {
+      print("Background Service Error (SpO2): $e");
+    }
 
-    // Use the new method for the persistent service notification
+    // Update the persistent notification for normal operation
     notificationService.showForegroundServiceNotification(
       id: notificationId,
       title: 'SmartVest is Active',
-      body: 'Monitoring health data. Last check: ${DateFormat.jm().format(now)}',
+      body: 'Monitoring your health data. Last check: ${DateFormat.jm().format(now)}',
     );
   });
 }
