@@ -1,5 +1,15 @@
 // lib/core/services/notification_service.dart
+import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+
+// Define channel IDs as constants to avoid typos
+const String highImportanceChannelId = 'smartvest_alerts_high';
+const String highImportanceChannelName = 'SmartVest Health Alerts';
+const String highImportanceChannelDesc = 'Notifications for critical health alerts from the Smart Vest.';
+
+const String lowImportanceChannelId = 'smartvest_service';
+const String lowImportanceChannelName = 'SmartVest Service';
+const String lowImportanceChannelDesc = 'Notification to keep the background service active.';
 
 class NotificationService {
   // Singleton pattern
@@ -11,10 +21,33 @@ class NotificationService {
   FlutterLocalNotificationsPlugin();
 
   Future<void> init() async {
+    // Create the high-importance channel
+    final AndroidNotificationChannel highImportanceChannel =
+    const AndroidNotificationChannel(
+      highImportanceChannelId,
+      highImportanceChannelName,
+      description: highImportanceChannelDesc,
+      importance: Importance.max, // Use max importance for pop-ups
+    );
+
+    // Create the low-importance channel for the foreground service
+    final AndroidNotificationChannel lowImportanceChannel =
+    const AndroidNotificationChannel(
+      lowImportanceChannelId,
+      lowImportanceChannelName,
+      description: lowImportanceChannelDesc,
+      importance: Importance.low, // Low importance to be non-intrusive
+    );
+
+    // Get the plugin instance and create the channels
+    final plugin = _notificationsPlugin.resolvePlatformSpecificImplementation<
+        AndroidFlutterLocalNotificationsPlugin>();
+    await plugin?.createNotificationChannel(highImportanceChannel);
+    await plugin?.createNotificationChannel(lowImportanceChannel);
+
     // Initialization settings for Android
-    // --- CHANGE THIS LINE ---
     const AndroidInitializationSettings initializationSettingsAndroid =
-    AndroidInitializationSettings('@drawable/notification_icon'); // Use the new icon
+    AndroidInitializationSettings('@drawable/notification_icon');
 
     // Initialization settings for iOS
     const DarwinInitializationSettings initializationSettingsIOS =
@@ -34,42 +67,64 @@ class NotificationService {
     await _notificationsPlugin.initialize(initializationSettings);
   }
 
-  Future<void> showNotification({
+  // NEW: Method to request notification permissions on Android 13+
+  Future<void> requestNotificationPermission() async {
+    if (defaultTargetPlatform == TargetPlatform.android) {
+      final plugin = _notificationsPlugin.resolvePlatformSpecificImplementation<
+          AndroidFlutterLocalNotificationsPlugin>();
+      if (plugin != null) {
+        // This will ask for permission on Android 13+
+        await plugin.requestNotificationsPermission();
+      }
+    }
+  }
+
+  // UPDATED: Method to show a high-priority alert (the pop-up)
+  Future<void> showHighPriorityAlert({
     required int id,
     required String title,
     required String body,
     String? payload,
   }) async {
-    // Details for Android notification
-    const AndroidNotificationDetails androidNotificationDetails =
-    AndroidNotificationDetails(
-      'smartvest_channel_id', // Channel ID
-      'SmartVest Alerts', // Channel Name
-      channelDescription: 'Notifications for health alerts from the Smart Vest.',
+    final AndroidNotificationDetails androidNotificationDetails =
+    const AndroidNotificationDetails(
+      highImportanceChannelId, // Use the high-importance channel ID
+      highImportanceChannelName,
+      channelDescription: highImportanceChannelDesc,
       importance: Importance.max,
       priority: Priority.high,
       ticker: 'ticker',
     );
 
-    // Details for iOS notification
-    const DarwinNotificationDetails darwinNotificationDetails =
-    DarwinNotificationDetails(
-      presentAlert: true,
-      presentBadge: true,
-      presentSound: true,
-    );
-
-    const NotificationDetails notificationDetails = NotificationDetails(
+    NotificationDetails notificationDetails = NotificationDetails(
       android: androidNotificationDetails,
-      iOS: darwinNotificationDetails,
+      // iOS details can be added here if needed
     );
 
-    await _notificationsPlugin.show(
-      id,
-      title,
-      body,
-      notificationDetails,
-      payload: payload,
+    await _notificationsPlugin.show(id, title, body, notificationDetails, payload: payload);
+  }
+
+  // NEW: Method specifically for the persistent foreground service notification
+  Future<void> showForegroundServiceNotification({
+    required int id,
+    required String title,
+    required String body,
+  }) async {
+    final AndroidNotificationDetails androidNotificationDetails =
+    const AndroidNotificationDetails(
+      lowImportanceChannelId, // Use the low-importance channel ID
+      lowImportanceChannelName,
+      channelDescription: lowImportanceChannelDesc,
+      importance: Importance.low,
+      priority: Priority.low,
+      ongoing: true, // Make it persistent
+      autoCancel: false,
     );
+
+    final NotificationDetails notificationDetails = NotificationDetails(
+      android: androidNotificationDetails,
+    );
+
+    await _notificationsPlugin.show(id, title, body, notificationDetails);
   }
 }

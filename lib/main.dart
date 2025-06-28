@@ -10,7 +10,10 @@ void main() async {
   try {
     WidgetsFlutterBinding.ensureInitialized();
 
+    // Initialize the notification service and request permissions
     await NotificationService().init();
+    await NotificationService().requestNotificationPermission(); // <-- ADD THIS LINE
+
     await initializeService();
 
     await Firebase.initializeApp(
@@ -29,7 +32,6 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      // The navigatorKey is no longer needed for the background service
       title: 'SmartVest',
       initialRoute: AppRoutes.login,
       routes: AppRoutes.routes,
