@@ -51,7 +51,7 @@ class WelcomeScreen extends StatelessWidget {
 
               // Main heading
               Text(
-                'Welcome to SmartVest!',
+                'Welcome to ErgoTrack!',
                 style: AppTextStyles.heading,
                 textAlign: TextAlign.center,
               ),

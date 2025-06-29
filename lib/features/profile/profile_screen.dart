@@ -239,7 +239,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       });
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('SmartVest disconnected.')),
+          const SnackBar(content: Text('Smart Vest disconnected.')),
         );
       }
       await _loadUserData(); // Refresh data
@@ -248,7 +248,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-              content: Text('Failed to disconnect SmartVest: ${e.toString()}')),
+              content: Text('Failed to disconnect Smart Vest: ${e.toString()}')),
         );
       }
     } finally {
@@ -442,7 +442,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
               ),
               const SizedBox(width: 8),
               Text(
-                hasDeviceConnected ? 'SmartVest Connected' : 'SmartVest Not Connected',
+                hasDeviceConnected ? 'Smart Vest Connected' : 'Smart Vest Not Connected',
                 style: AppTextStyles.bodyText.copyWith(color: hasDeviceConnected ? AppColors.goodPostureZone : AppColors.heartRateColor),
               ),
             ],
@@ -467,7 +467,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
               )
                   : ElevatedButton.icon(
                 icon: const Icon(Icons.bluetooth_searching_rounded),
-                label: const Text('Search for SmartVest'),
+                label: const Text('Search for Smart Vest'),
                 onPressed: () => Navigator.pushNamed(context, AppRoutes.searchAndConnect),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: AppColors.profileColor,

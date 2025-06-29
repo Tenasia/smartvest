@@ -301,7 +301,7 @@ class _SearchingDeviceScreenState extends State<SearchingDeviceScreen> {
           const SizedBox(height: 24),
           Text("Bluetooth is Off", style: AppTextStyles.heading.copyWith(fontSize: 22)),
           const SizedBox(height: 8),
-          Text("Please turn on Bluetooth to connect your SmartVest.", style: AppTextStyles.secondaryInfo, textAlign: TextAlign.center),
+          Text("Please turn on Bluetooth to connect your Smart Vest.", style: AppTextStyles.secondaryInfo, textAlign: TextAlign.center),
           const SizedBox(height: 24),
           ElevatedButton(
             onPressed: () async => await FlutterBluePlus.turnOn(),
@@ -321,7 +321,7 @@ class _SearchingDeviceScreenState extends State<SearchingDeviceScreen> {
         children: [
           const CircularProgressIndicator(color: AppColors.profileColor, strokeWidth: 3),
           const SizedBox(height: 32),
-          Text('Searching for SmartVest...', style: AppTextStyles.heading.copyWith(fontSize: 22)),
+          Text('Searching for Smart Vest...', style: AppTextStyles.heading.copyWith(fontSize: 22)),
           const SizedBox(height: 8),
           Text('Keep your device nearby and powered on.', style: AppTextStyles.secondaryInfo, textAlign: TextAlign.center),
         ],
@@ -339,7 +339,7 @@ class _SearchingDeviceScreenState extends State<SearchingDeviceScreen> {
           const SizedBox(height: 24),
           Text('No Device Found', style: AppTextStyles.heading.copyWith(fontSize: 22)),
           const SizedBox(height: 8),
-          Text('Make sure your SmartVest is on and nearby, then try again.', style: AppTextStyles.secondaryInfo, textAlign: TextAlign.center),
+          Text('Make sure your Smart Vest is on and nearby, then try again.', style: AppTextStyles.secondaryInfo, textAlign: TextAlign.center),
           const SizedBox(height: 24),
           ElevatedButton(
             onPressed: _startScan,

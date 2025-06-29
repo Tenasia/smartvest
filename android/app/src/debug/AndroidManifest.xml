@@ -18,7 +18,7 @@
     <uses-permission android:name="android.permission.ACTIVITY_RECOGNITION"/>
 
     <application
-        android:label="smartvest"
+        android:label="ErgoTrack"
         android:name="${applicationName}"
         tools:replace="android:icon"
         android:icon="@mipmap/launcher_icon"

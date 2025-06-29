@@ -28,7 +28,7 @@ Future<void> initializeService() async {
       autoStart: true,
       // Use the constant from the notification service for the channel ID
       notificationChannelId: lowImportanceChannelId,
-      initialNotificationTitle: 'SmartVest Service',
+      initialNotificationTitle: 'ErgoTrack Service',
       initialNotificationContent: 'Initializing...',
       foregroundServiceNotificationId: notificationId,
     ),
@@ -132,7 +132,7 @@ void onStart(ServiceInstance service) async {
     // Update the persistent notification for normal operation
     notificationService.showForegroundServiceNotification(
       id: notificationId,
-      title: 'SmartVest is Active',
+      title: 'Smart Vest is Active',
       body: 'Monitoring your health data. Last check: ${DateFormat.jm().format(now)}',
     );
   });

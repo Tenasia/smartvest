@@ -33,7 +33,7 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'SmartVest',
+      title: 'ErgoTrack',
       initialRoute: AppRoutes.login,
       routes: AppRoutes.routes,
       theme: ThemeData(

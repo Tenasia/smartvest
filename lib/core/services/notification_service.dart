@@ -5,11 +5,11 @@ import 'dart:typed_data'; // <-- IMPORT THIS for the vibration pattern
 
 // Define channel IDs as constants to avoid typos
 const String highImportanceChannelId = 'smartvest_alerts_high';
-const String highImportanceChannelName = 'SmartVest Health Alerts';
+const String highImportanceChannelName = 'ErgoTrack Health Alerts';
 const String highImportanceChannelDesc = 'Notifications for critical health alerts from the Smart Vest.';
 
 const String lowImportanceChannelId = 'smartvest_service';
-const String lowImportanceChannelName = 'SmartVest Service';
+const String lowImportanceChannelName = 'ErgoTrack Service';
 const String lowImportanceChannelDesc = 'Notification to keep the background service active.';
 
 class NotificationService {

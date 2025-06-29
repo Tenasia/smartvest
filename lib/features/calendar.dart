@@ -1,13 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:health/health.dart';
 import 'package:smartvest/core/services/health_service.dart';
+import 'package:smartvest/core/services/gemini_service.dart';
 import 'package:table_calendar/table_calendar.dart';
 import 'package:intl/intl.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'dart:async';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:flutter_markdown/flutter_markdown.dart';
 
-// --- DESIGN SYSTEM (Copied from your other screens for consistency) ---
+// --- DESIGN SYSTEM (Using the established system for consistency) ---
 class AppColors {
   static const Color background = Color(0xFFF7F8FC);
   static const Color cardBackground = Colors.white;
@@ -72,16 +74,22 @@ class CalendarScreen extends StatefulWidget {
 }
 
 class _CalendarScreenState extends State<CalendarScreen> {
-  // --- STATE & LOGIC (Functionality is preserved, no changes here) ---
+  // --- MODIFIED: Added GeminiService instance and new state variables ---
   final HealthService _healthService = HealthService();
   final DatabaseReference _firebaseDbRef = FirebaseDatabase.instance.ref('healthMonitor/data');
+  final GeminiService _geminiService = GeminiService();
+
   final Map<DateTime, DailyHealthSummary> _healthDataMap = {};
+  final Map<DateTime, String> _summaryCache = {};
 
   CalendarFormat _calendarFormat = CalendarFormat.month;
   DateTime _focusedDay = DateTime.now();
   DateTime? _selectedDay;
   DailyHealthSummary? _selectedDaySummary;
   bool _isLoading = false;
+
+  String? _selectedDayAiSummary;
+  bool _isGeneratingSummary = false;
 
   @override
   void initState() {
@@ -90,7 +98,58 @@ class _CalendarScreenState extends State<CalendarScreen> {
     _fetchDataForMonth(_focusedDay);
   }
 
-  // All data fetching and calculation logic remains exactly the same.
+  Future<void> _generateDailySummary({bool forceRefresh = false}) async {
+    if (_isGeneratingSummary || _selectedDaySummary == null) return;
+
+    final day = DateTime.utc(_selectedDay!.year, _selectedDay!.month, _selectedDay!.day);
+
+    if (_summaryCache.containsKey(day) && !forceRefresh) {
+      setState(() => _selectedDayAiSummary = _summaryCache[day]);
+      return;
+    }
+
+    setState(() {
+      _isGeneratingSummary = true;
+      _selectedDayAiSummary = "Analyzing this day's data...";
+    });
+
+    try {
+      final summary = _selectedDaySummary!;
+      final promptData = StringBuffer();
+      promptData.writeln("Analyze the health data for this specific day: ${DateFormat.yMMMMd().format(day)}.");
+      promptData.writeln("- Heart Rate: Avg ${summary.heartRateStats.avg?.toStringAsFixed(0) ?? 'N/A'} BPM, Range ${summary.heartRateStats.min?.toStringAsFixed(0) ?? 'N/A'}-${summary.heartRateStats.max?.toStringAsFixed(0) ?? 'N/A'}.");
+      promptData.writeln("- Blood Oxygen: Avg ${summary.spo2Stats.avg?.toStringAsFixed(1) ?? 'N/A'}%, Range ${summary.spo2Stats.min?.toStringAsFixed(1) ?? 'N/A'}-${summary.spo2Stats.max?.toStringAsFixed(1) ?? 'N/A'}.");
+      promptData.writeln("- Posture Score (RULA): Avg ${summary.postureStats.avgRulaScore?.toStringAsFixed(1) ?? 'N/A'}, Best ${summary.postureStats.minRulaScore?.toStringAsFixed(0) ?? 'N/A'}, Worst ${summary.postureStats.maxRulaScore?.toStringAsFixed(0) ?? 'N/A'}.");
+      promptData.writeln("- Stress (GSR): Avg ${summary.stressStats.avgGsr?.toStringAsFixed(0) ?? 'N/A'}, Range ${summary.stressStats.minGsr?.toStringAsFixed(0) ?? 'N/A'}-${summary.stressStats.maxGsr?.toStringAsFixed(0) ?? 'N/A'}.");
+      promptData.writeln("\nProvide a concise summary focusing on any notable data points or potential correlations for this day. Offer one actionable tip. Use simple markdown.");
+
+      final result = await _geminiService.getGlobalSummary(promptData.toString());
+      if (mounted) {
+        setState(() {
+          _selectedDayAiSummary = result;
+          _summaryCache[day] = result;
+        });
+      }
+    } catch (e) {
+      if (mounted) setState(() => _selectedDayAiSummary = "Sorry, an error occurred while generating the summary.");
+    } finally {
+      if (mounted) setState(() => _isGeneratingSummary = false);
+    }
+  }
+
+  void _onDaySelected(DateTime selectedDay, DateTime focusedDay) {
+    if (!isSameDay(_selectedDay, selectedDay)) {
+      if (!mounted) return;
+      setState(() {
+        _selectedDay = selectedDay;
+        _focusedDay = focusedDay;
+        _selectedDayAiSummary = null;
+        _isGeneratingSummary = false;
+      });
+      _updateSelectedDaySummary(selectedDay);
+    }
+  }
+
   Future<void> _fetchDataForMonth(DateTime month) async {
     if (!mounted) return;
     setState(() { _isLoading = true; });
@@ -102,7 +161,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
       _healthService.getHealthData(firstDayOfMonth, lastDayOfMonth, HealthDataType.HEART_RATE),
       _healthService.getHealthData(firstDayOfMonth, lastDayOfMonth, HealthDataType.BLOOD_OXYGEN),
       _firebaseDbRef
-          .orderByChild('timestamp')
+          .orderByKey()
           .startAt(firstDayOfMonth.millisecondsSinceEpoch.toString())
           .endAt(lastDayOfMonth.millisecondsSinceEpoch.toString())
           .once(),
@@ -128,9 +187,9 @@ class _CalendarScreenState extends State<CalendarScreen> {
       final firebaseData = firebaseSnapshot.snapshot.value as Map<dynamic, dynamic>;
       firebaseData.forEach((key, value) {
         final entry = value as Map<dynamic, dynamic>;
-        final timestampStr = entry['timestamp']?.toString();
-        if (timestampStr != null) {
-          final timestamp = DateTime.fromMillisecondsSinceEpoch(int.parse(timestampStr));
+        final epochSeconds = int.tryParse(key);
+        if (epochSeconds != null) {
+          final timestamp = DateTime.fromMillisecondsSinceEpoch(epochSeconds * 1000);
           final day = DateTime.utc(timestamp.year, timestamp.month, timestamp.day);
           dailyFirebaseData.putIfAbsent(day, () => []).add(entry);
         }
@@ -154,6 +213,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
       });
     }
   }
+
   HealthStats _calculateHealthConnectStats(List<HealthDataPoint> points) {
     if (points.isEmpty) return HealthStats();
     double? min, max;
@@ -166,44 +226,41 @@ class _CalendarScreenState extends State<CalendarScreen> {
     }
     return HealthStats(min: min, max: max, avg: sum / points.length);
   }
+
   PostureStats _calculatePostureStats(List<Map<dynamic, dynamic>> entries) {
     if (entries.isEmpty) return PostureStats();
     double? min, max;
     double sum = 0;
+    int count = 0;
     for (var e in entries) {
       final value = e['posture']?['rulaScore']?.toDouble();
       if (value != null) {
         sum += value;
+        count++;
         if (min == null || value < min) min = value;
         if (max == null || value > max) max = value;
       }
     }
-    return entries.isNotEmpty ? PostureStats(minRulaScore: min, maxRulaScore: max, avgRulaScore: sum / entries.length) : PostureStats();
+    return count > 0 ? PostureStats(minRulaScore: min, maxRulaScore: max, avgRulaScore: sum / count) : PostureStats();
   }
+
   StressStats _calculateStressStats(List<Map<dynamic, dynamic>> entries) {
     if (entries.isEmpty) return StressStats();
     double? min, max;
     double sum = 0;
+    int count = 0;
     for (var e in entries) {
       final value = e['stress']?['gsrReading']?.toDouble();
       if (value != null) {
         sum += value;
+        count++;
         if (min == null || value < min) min = value;
         if (max == null || value > max) max = value;
       }
     }
-    return entries.isNotEmpty ? StressStats(minGsr: min, maxGsr: max, avgGsr: sum / entries.length) : StressStats();
+    return count > 0 ? StressStats(minGsr: min, maxGsr: max, avgGsr: sum / count) : StressStats();
   }
-  void _onDaySelected(DateTime selectedDay, DateTime focusedDay) {
-    if (!isSameDay(_selectedDay, selectedDay)) {
-      if (!mounted) return;
-      setState(() {
-        _selectedDay = selectedDay;
-        _focusedDay = focusedDay;
-      });
-      _updateSelectedDaySummary(selectedDay);
-    }
-  }
+
   void _updateSelectedDaySummary(DateTime day) {
     final normalizedDay = DateTime.utc(day.year, day.month, day.day);
     setState(() {
@@ -211,7 +268,6 @@ class _CalendarScreenState extends State<CalendarScreen> {
     });
   }
 
-  // --- MODERNIZED UI BUILD METHOD ---
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -252,26 +308,19 @@ class _CalendarScreenState extends State<CalendarScreen> {
                 if (_healthDataMap.containsKey(normalizedDay)) return ['data_available'];
                 return [];
               },
-              // --- STYLED CALENDAR ---
               headerStyle: HeaderStyle(
                 titleCentered: true,
                 titleTextStyle: AppTextStyles.cardTitle,
-                formatButtonVisible: false, // Cleaner look
+                formatButtonVisible: false,
                 leftChevronIcon: const Icon(Icons.chevron_left, color: AppColors.primaryText),
                 rightChevronIcon: const Icon(Icons.chevron_right, color: AppColors.primaryText),
               ),
               calendarStyle: CalendarStyle(
-                defaultTextStyle: AppTextStyles.bodyText,
+                defaultTextStyle: AppTextStyles.bodyText.copyWith(color: AppColors.primaryText),
                 weekendTextStyle: AppTextStyles.bodyText.copyWith(color: AppColors.profileColor),
                 outsideTextStyle: AppTextStyles.bodyText.copyWith(color: AppColors.secondaryText.withOpacity(0.5)),
-                selectedDecoration: const BoxDecoration(
-                  color: AppColors.profileColor,
-                  shape: BoxShape.circle,
-                ),
-                todayDecoration: BoxDecoration(
-                  color: AppColors.profileColor.withOpacity(0.3),
-                  shape: BoxShape.circle,
-                ),
+                selectedDecoration: const BoxDecoration(color: AppColors.profileColor, shape: BoxShape.circle),
+                todayDecoration: BoxDecoration(color: AppColors.profileColor.withOpacity(0.3), shape: BoxShape.circle),
               ),
               calendarBuilders: CalendarBuilders(
                 markerBuilder: (context, day, events) {
@@ -300,8 +349,6 @@ class _CalendarScreenState extends State<CalendarScreen> {
       ),
     );
   }
-
-  // --- MODERNIZED UI WIDGETS ---
 
   Widget _buildSelectedDayData() {
     if (_selectedDay == null) {
@@ -335,7 +382,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(DateFormat.yMMMMd().format(_selectedDay!), style: AppTextStyles.cardTitle),
+            Text(DateFormat.yMMMMd().format(_selectedDay!), style: AppTextStyles.cardTitle.copyWith(fontSize: 18)),
             const Divider(height: 24, thickness: 1, color: AppColors.background),
             content,
           ],
@@ -347,56 +394,70 @@ class _CalendarScreenState extends State<CalendarScreen> {
     return Column(
       children: [
         _buildMetricDetailRow(
-            icon: Icons.favorite_rounded,
-            color: AppColors.heartRateColor,
-            label: "Heart Rate",
-            stats: {
-              "Avg": summary.heartRateStats.avg?.toStringAsFixed(0) ?? "--",
-              "Min": summary.heartRateStats.min?.toStringAsFixed(0) ?? "--",
-              "Max": summary.heartRateStats.max?.toStringAsFixed(0) ?? "--",
-            },
+            icon: Icons.favorite_rounded, color: AppColors.heartRateColor, label: "Heart Rate",
+            stats: { "Avg": summary.heartRateStats.avg?.toStringAsFixed(0) ?? "--", "Min": summary.heartRateStats.min?.toStringAsFixed(0) ?? "--", "Max": summary.heartRateStats.max?.toStringAsFixed(0) ?? "--" },
             unit: "BPM"
         ),
         const Divider(height: 32),
         _buildMetricDetailRow(
-            icon: Icons.bloodtype_rounded,
-            color: AppColors.oxygenColor,
-            label: "Blood Oxygen",
-            stats: {
-              "Avg": summary.spo2Stats.avg?.toStringAsFixed(1) ?? "--",
-              "Min": summary.spo2Stats.min?.toStringAsFixed(1) ?? "--",
-              "Max": summary.spo2Stats.max?.toStringAsFixed(1) ?? "--",
-            },
+            icon: Icons.bloodtype_rounded, color: AppColors.oxygenColor, label: "Blood Oxygen",
+            stats: { "Avg": summary.spo2Stats.avg?.toStringAsFixed(1) ?? "--", "Min": summary.spo2Stats.min?.toStringAsFixed(1) ?? "--", "Max": summary.spo2Stats.max?.toStringAsFixed(1) ?? "--" },
             unit: "%"
         ),
         const Divider(height: 32),
         _buildMetricDetailRow(
-          icon: Icons.accessibility_new_rounded,
-          color: AppColors.postureColor,
-          label: "Posture Score",
-          stats: {
-            "Avg": summary.postureStats.avgRulaScore?.toStringAsFixed(1) ?? "--",
-            "Best": summary.postureStats.minRulaScore?.toStringAsFixed(0) ?? "--",
-            "Worst": summary.postureStats.maxRulaScore?.toStringAsFixed(0) ?? "--",
-          },
+          icon: Icons.accessibility_new_rounded, color: AppColors.postureColor, label: "Posture Score",
+          stats: { "Avg": summary.postureStats.avgRulaScore?.toStringAsFixed(1) ?? "--", "Best": summary.postureStats.minRulaScore?.toStringAsFixed(0) ?? "--", "Worst": summary.postureStats.maxRulaScore?.toStringAsFixed(0) ?? "--" },
         ),
         const Divider(height: 32),
         _buildMetricDetailRow(
-            icon: Icons.bolt_rounded,
-            color: AppColors.stressColor,
-            label: "Stress Level",
-            stats: {
-              "Avg": summary.stressStats.avgGsr?.toStringAsFixed(0) ?? "--",
-              "Min": summary.stressStats.minGsr?.toStringAsFixed(0) ?? "--",
-              "Max": summary.stressStats.maxGsr?.toStringAsFixed(0) ?? "--",
-            },
-            unit: "GSR"
+          icon: Icons.bolt_rounded, color: AppColors.stressColor, label: "Stress (GSR)",
+          stats: { "Avg": summary.stressStats.avgGsr?.toStringAsFixed(0) ?? "--", "Min": summary.stressStats.minGsr?.toStringAsFixed(0) ?? "--", "Max": summary.stressStats.maxGsr?.toStringAsFixed(0) ?? "--" },
+        ),
+        const Divider(height: 32, thickness: 1, color: AppColors.background),
+        _buildAiAnalysisSection(),
+      ],
+    );
+  }
+
+  Widget _buildAiAnalysisSection() {
+    return ExpansionTile(
+      tilePadding: EdgeInsets.zero,
+      initiallyExpanded: false,
+      title: Row(
+        children: [
+          const Icon(Icons.auto_awesome_rounded, color: AppColors.profileColor, size: 24),
+          const SizedBox(width: 16),
+          Text("Daily AI Analysis", style: AppTextStyles.bodyText.copyWith(fontWeight: FontWeight.w600, color: AppColors.primaryText, fontSize: 16)),
+        ],
+      ),
+      onExpansionChanged: (isExpanded) {
+        if (isExpanded && _selectedDayAiSummary == null) {
+          _generateDailySummary();
+        }
+      },
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(top: 8.0),
+          child: _isGeneratingSummary
+              ? const Center(child: Padding(
+            padding: EdgeInsets.all(8.0),
+            child: CircularProgressIndicator(color: AppColors.profileColor),
+          ))
+              : MarkdownBody(
+            data: _selectedDayAiSummary ?? "Expand to generate your analysis for this day.",
+            styleSheet: MarkdownStyleSheet.fromTheme(Theme.of(context)).copyWith(
+              p: AppTextStyles.bodyText.copyWith(color: AppColors.secondaryText, fontSize: 14, height: 1.5),
+              listBullet: AppTextStyles.bodyText.copyWith(color: AppColors.secondaryText, fontSize: 14, height: 1.5),
+              h1: AppTextStyles.cardTitle,
+              h2: AppTextStyles.cardTitle,
+            ),
+          ),
         ),
       ],
     );
   }
 
-  // A new, cleaner widget for displaying a single metric's details
   Widget _buildMetricDetailRow({
     required IconData icon,
     required Color color,
@@ -413,8 +474,8 @@ class _CalendarScreenState extends State<CalendarScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(label, style: AppTextStyles.bodyText.copyWith(fontWeight: FontWeight.w600)),
-                const SizedBox(height: 4),
+                Text(label, style: AppTextStyles.cardTitle),
+                const SizedBox(height: 8),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: stats.entries.map((entry) =>
