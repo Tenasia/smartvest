@@ -1,22 +1,28 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:smartvest/config/app_routes.dart';
-import 'features/auth/login.dart'; // Ensure LoginScreen is imported
+import 'package:smartvest/core/services/background_service.dart';
+import 'package:smartvest/core/services/notification_service.dart';
+import 'features/auth/login.dart';
 import 'firebase_options.dart';
+import 'package:smartvest/features/auth/auth_wrapper.dart'; // Import the new wrapper
 
 void main() async {
-  // This is the core of the fix. We wrap the initialization in a try-catch block.
   try {
     WidgetsFlutterBinding.ensureInitialized();
+
+    // Initialize the notification service and request permissions
+    await NotificationService().init();
+    await NotificationService().requestNotificationPermission(); // <-- ADD THIS LINE
+
+    await initializeService();
+
     await Firebase.initializeApp(
       options: DefaultFirebaseOptions.currentPlatform,
     );
-    // If Firebase initializes successfully, run the main app.
     runApp(const MyApp());
   } catch (e) {
-    // If an error occurs during initialization, run an error screen instead.
-    // This prevents the white screen crash.
-    print("Failed to initialize Firebase: $e");
+    print("Failed to initialize app: $e");
     runApp(ErrorApp(errorMessage: e.toString()));
   }
 }
@@ -27,16 +33,14 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'SmartVest',
-      initialRoute: AppRoutes.login, // Your initial route
+      title: 'ErgoTrack',
+      initialRoute: AppRoutes.login,
       routes: AppRoutes.routes,
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
         useMaterial3: true,
       ),
-      // The 'home' property is redundant when 'initialRoute' is used,
-      // but we'll leave it pointing to LoginScreen as a fallback.
-      home: const LoginScreen(),
+      home: const AuthWrapper(),
     );
   }
 }

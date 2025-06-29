@@ -1,4 +1,7 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    >
 
     <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
     <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" android:maxSdkVersion="30" />
@@ -15,9 +18,11 @@
     <uses-permission android:name="android.permission.ACTIVITY_RECOGNITION"/>
 
     <application
-        android:label="smartvest"
+        android:label="ErgoTrack"
         android:name="${applicationName}"
-        android:icon="@mipmap/ic_launcher">
+        tools:replace="android:icon"
+        android:icon="@mipmap/launcher_icon"
+        >
 
         <activity
             android:name=".MainActivity"

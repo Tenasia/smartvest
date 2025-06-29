@@ -10,23 +10,28 @@ plugins {
 
 android {
     namespace = "com.smartvest.smartvest"
+    // The compileSdk is set by the Flutter Gradle Plugin.
+    // You can override it here if you really need to.
     compileSdk = flutter.compileSdkVersion
-    ndkVersion = "27.0.12077973" // Add or modify this line to override Flutter's setting
+    // It's recommended to let Flutter manage the NDK version,
+    // but you can override it like this if necessary.
+    ndkVersion = "27.0.12077973"
 
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_11
-        targetCompatibility = JavaVersion.VERSION_11
+        // This enables the use of modern Java language features on older Android API levels.
+        isCoreLibraryDesugaringEnabled = true
+        sourceCompatibility = JavaVersion.VERSION_1_8
+        targetCompatibility = JavaVersion.VERSION_1_8
     }
 
     kotlinOptions {
-        jvmTarget = JavaVersion.VERSION_11.toString()
+        jvmTarget = "1.8"
     }
 
     defaultConfig {
-        // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
         applicationId = "com.smartvest.smartvest"
-        // You can update the following values to match your application needs.
-        // For more information, see: https://flutter.dev/to/review-gradle-config.
+        // minSdk is set by the Flutter Gradle Plugin.
+        // You can override it here if you really need to.
         minSdk = 26
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
@@ -40,6 +45,12 @@ android {
             signingConfig = signingConfigs.getByName("debug")
         }
     }
+}
+
+dependencies {
+    // This is the dependency for core library desugaring.
+    // The version should be compatible with your Android Gradle Plugin version.
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.0.4")
 }
 
 flutter {
