@@ -143,66 +143,147 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     super.dispose();
   }
 
+  Widget _buildNotificationIcon(AppNotification notification) {
+    IconData iconData;
+    Color backgroundColor;
+    Color iconColor;
+
+    // Use theme colors for a more integrated look
+    final colorScheme = Theme.of(context).colorScheme;
+
+    if (notification.title.contains("Posture")) {
+      iconData = Icons.accessibility_new_rounded;
+      backgroundColor = colorScheme.secondaryContainer;
+      iconColor = colorScheme.onSecondaryContainer;
+    } else if (notification.title.contains("Stress")) {
+      iconData = Icons.sentiment_very_dissatisfied;
+      backgroundColor = Colors.purple.shade100;
+      iconColor = Colors.purple.shade800;
+    } else if (notification.title.contains("Heart")) {
+      iconData = Icons.monitor_heart_outlined;
+      backgroundColor = colorScheme.errorContainer;
+      iconColor = colorScheme.onErrorContainer;
+    } else { // SpO2
+      iconData = Icons.bloodtype_outlined;
+      backgroundColor = Colors.teal.shade100;
+      iconColor = Colors.teal.shade800;
+    }
+
+    return CircleAvatar(
+      radius: 24,
+      backgroundColor: backgroundColor,
+      child: Icon(iconData, color: iconColor, size: 26),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    // Use the color scheme for consistency
+    final colorScheme = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Alerts & Notifications'),
-        automaticallyImplyLeading: false,
         centerTitle: true,
+        // A subtle background color from the theme
+        backgroundColor: colorScheme.surfaceContainerHighest,
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : _notifications.isEmpty
-          ? Center( /* ... Empty state UI ... */ )
-          : ListView.builder(
-        padding: const EdgeInsets.all(12.0),
-        itemCount: _notifications.length,
-        itemBuilder: (context, index) {
-          final notification = _notifications[index];
-
-          IconData icon;
-          if (notification.title.contains("Posture")) {
-            icon = Icons.accessibility_new_rounded;
-          } else if (notification.title.contains("Stress")) {
-            icon = Icons.sentiment_very_dissatisfied;
-          } else if (notification.title.contains("Heart")) {
-            icon = Icons.monitor_heart;
-          } else { // SpO2
-            icon = Icons.bloodtype;
-          }
-
-          return Card(
-            elevation: 2.0,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(10.0),
-            ),
-            child: ListTile(
-              contentPadding: const EdgeInsets.all(16.0),
-              leading: Icon(
-                icon,
-                color: Theme.of(context).primaryColor,
-                size: 32,
-              ),
-              title: Text(
-                notification.title,
-                style: const TextStyle(fontWeight: FontWeight.bold),
-              ),
-              subtitle: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const SizedBox(height: 4.0),
-                  Text(notification.details),
-                  const SizedBox(height: 8.0),
-                  Text(
-                    DateFormat('MMM d, hh:mm a').format(notification.timestamp),
-                    style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
-                  ),
-                ],
-              ),
-            ),
-          );
+          ? _buildEmptyState(textTheme, colorScheme)
+          : RefreshIndicator(
+        onRefresh: () async {
+          // Although Firestore streams update automatically,
+          // this gives users a manual way to refresh.
+          _listenForHealthAlerts();
+          // Add a small delay for user feedback
+          await Future.delayed(const Duration(seconds: 1));
         },
+        child: ListView.builder(
+          padding: const EdgeInsets.symmetric(vertical: 8.0),
+          itemCount: _notifications.length,
+          itemBuilder: (context, index) {
+            final notification = _notifications[index];
+            return Card(
+              // Use margin for spacing between cards
+              margin: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 6.0),
+              // Use modern M3 card styling
+              elevation: 1.0,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16.0),
+                side: BorderSide(
+                  color: colorScheme.outline.withOpacity(0.2),
+                  width: 1,
+                ),
+              ),
+              child: ListTile(
+                contentPadding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 12.0),
+                leading: _buildNotificationIcon(notification),
+                title: Text(
+                  notification.title,
+                  style: textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                subtitle: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const SizedBox(height: 4.0),
+                    Text(
+                      notification.details,
+                      style: textTheme.bodyMedium?.copyWith(
+                        color: colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                    const SizedBox(height: 10.0),
+                    Text(
+                      DateFormat('MMM d, hh:mm a').format(notification.timestamp),
+                      style: textTheme.bodySmall?.copyWith(
+                        color: colorScheme.onSurfaceVariant.withOpacity(0.8),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  // A dedicated widget for the "empty" state for better readability
+  Widget _buildEmptyState(TextTheme textTheme, ColorScheme colorScheme) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32.0),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              Icons.notifications_off_outlined,
+              size: 80,
+              color: colorScheme.onSurface.withOpacity(0.4),
+            ),
+            const SizedBox(height: 24),
+            Text(
+              'All Clear!',
+              style: textTheme.headlineSmall?.copyWith(
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'You have no new notifications.\nWe\'ll let you know when something comes up.',
+              textAlign: TextAlign.center,
+              style: textTheme.bodyMedium?.copyWith(
+                color: colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
