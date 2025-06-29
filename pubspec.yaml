@@ -33,12 +33,21 @@ dependencies:
   flutter_local_notifications: ^17.1.2 # ADD THIS LINE
   flutter_background_service: ^5.1.0
   google_fonts: ^6.2.1
+  mqtt_client: ^10.2.1 # <-- ADD THIS LINE
 dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^4.0.0
+  flutter_launcher_icons: ^0.14.4
 
 flutter:
   uses-material-design: true
   assets:
     - assets/
+    - assets/icons/
+
+flutter_launcher_icons:
+  android: "launcher_icon"
+  ios: true
+  image_path: "assets/app_icon.png"
+  min_sdk_android: 26 # Your app's minimum SDK version

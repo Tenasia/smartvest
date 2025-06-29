@@ -1,4 +1,7 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<?xml version="1.0" encoding="utf-8"?>
+<manifest
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC"/>
@@ -25,7 +28,8 @@
     <application
         android:label="smartvest"
         android:name="${applicationName}"
-        android:icon="@mipmap/ic_launcher">
+        tools:replace="android:icon"
+        android:icon="@mipmap/launcher_icon">
 
         <activity
             android:name=".MainActivity"
@@ -68,7 +72,7 @@
             android:name="cachet.plugins.health.HealthConnectPermissionsActivity"
             android:exported="true"
             android:theme="@android:style/Theme.Translucent.NoTitleBar"
-            />
+        />
 
         <meta-data
             android:name="flutterEmbedding"

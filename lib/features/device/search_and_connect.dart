@@ -4,7 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'dart:convert'; // For utf8.encode
-
+import 'package:smartvest/core/services/mqtt_service.dart';
 // TODO: Import a permission handler package if you haven't already
 // import 'package:permission_handler/permission_handler.dart';
 
@@ -34,6 +34,7 @@ class _SearchingDeviceScreenState extends State<SearchingDeviceScreen> {
   final Guid _esp32ServiceUuid = Guid("d751e04f-3ee7-4d5a-b40d-c9f92ea9c56c"); // <-- IMPORTANT: REPLACE THIS
   final Guid _esp32IdentifierCharacteristicUuid = Guid("02d0732d-304a-4195-b687-5b1525a05ca9");
   final Guid _esp32PairCommandCharacteristicUuid = Guid("6f5f12ed-2ea6-4a3b-9191-4d7e4ade9d5a");
+  final MqttService _mqttService = MqttService();
 
 
   @override
@@ -228,6 +229,8 @@ class _SearchingDeviceScreenState extends State<SearchingDeviceScreen> {
                   if (bindingData['boundToUserUid'] == _user!.uid && bindingData['isActivelyBound'] == true) {
                     print("Device $esp32IdFromCharacteristic already bound to current user ${_user!.uid}. Connecting...");
                     await _updateUserDeviceStatus(esp32IdFromCharacteristic, deviceMacAddress, true, true);
+                    // *** ADDED: Connect to MQTT on reconnect ***
+                    await _mqttService.connectAndSubscribe(esp32IdFromCharacteristic);
                     if (mounted) Navigator.pushReplacementNamed(context, '/dashboard');
                   } else if (bindingData['isActivelyBound'] == true) {
                     print("Device $esp32IdFromCharacteristic is bound to another user: ${bindingData['boundToUserUid']}");
@@ -311,6 +314,9 @@ class _SearchingDeviceScreenState extends State<SearchingDeviceScreen> {
           'hasDeviceConnected': true,
           'previouslyHasDeviceConnected': true,
         });
+
+        await _mqttService.connectAndSubscribe(esp32Id);
+
         await _firestore.collection('esp32_bindings').doc(esp32Id).set({
           'boundToUserUid': _user!.uid,
           'macAddress': macAddress,
@@ -318,10 +324,12 @@ class _SearchingDeviceScreenState extends State<SearchingDeviceScreen> {
           'isActivelyBound': true,
         });
         print("Device $esp32Id successfully bound to user ${_user!.uid}");
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('${device.platformName} successfully paired!')),
-        );
-        if (mounted) Navigator.pushReplacementNamed(context, '/dashboard');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('${device.platformName} successfully paired!')),
+          );
+          Navigator.pushReplacementNamed(context, '/dashboard');
+        }
       } else {
         print("ESP32 did not confirm pairing or command failed for $esp32Id.");
         ScaffoldMessenger.of(context).showSnackBar(
