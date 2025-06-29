@@ -150,18 +150,43 @@ class MqttService {
       Map<String, dynamic> data = jsonDecode(payload);
       debugPrint('MQTT_SERVICE:: Decoded JSON data: ${data.keys.join(', ')}');
 
-      // Add user-specific and server-side data
-      final int epochTime = DateTime.now().millisecondsSinceEpoch ~/ 1000;
-      data['userId'] = currentUser.uid;
-      data['timestamp'] = ServerValue.timestamp;
-      data['epochTime'] = epochTime;
+      // Ensure user_id is set (override if empty or missing)
+      data['user_id'] = currentUser.uid;
 
-      // Save to Firebase Realtime Database
-      _database.ref('healthMonitor/data/$epochTime').set(data).then((_) {
+      // Add server-side timestamp and epoch time
+      final int epochTime = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+      data['server_timestamp'] = ServerValue.timestamp;
+      data['server_epoch_time'] = epochTime;
+
+      // If human_time is not set or invalid, set it from server
+      if (data['human_time'] == null ||
+          data['human_time'] == 'TIME_NOT_SET' ||
+          data['time_valid'] == false) {
+        data['human_time'] = DateTime.now().toIso8601String();
+        data['time_valid'] = true;
+        debugPrint('MQTT_SERVICE:: Set human_time from server: ${data['human_time']}');
+      }
+
+      // Ensure epoch_time is valid
+      if (data['epoch_time'] == null || data['epoch_time'] == 0) {
+        data['epoch_time'] = epochTime;
+        debugPrint('MQTT_SERVICE:: Set epoch_time from server: $epochTime');
+      }
+
+      // Save to Firebase Realtime Database with enhanced structure
+      final String dataKey = '${currentUser.uid}_$epochTime';
+      _database.ref('healthMonitor/data/$dataKey').set(data).then((_) {
         _saveCount++;
-        debugPrint('MQTT_SERVICE:: ✅ Data #$_saveCount successfully saved to Firebase RTDB.');
+        debugPrint('MQTT_SERVICE:: ✅ Data #$_saveCount successfully saved to Firebase RTDB with key: $dataKey');
       }).catchError((error) {
         debugPrint('MQTT_SERVICE:: ❌ Error saving to Firebase RTDB: $error');
+      });
+
+      // Also save to user-specific path for easier querying
+      _database.ref('users/${currentUser.uid}/healthData/$epochTime').set(data).then((_) {
+        debugPrint('MQTT_SERVICE:: ✅ Data also saved to user-specific path');
+      }).catchError((error) {
+        debugPrint('MQTT_SERVICE:: ❌ Error saving to user-specific path: $error');
       });
 
     } catch (e) {

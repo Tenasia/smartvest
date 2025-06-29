@@ -4,10 +4,9 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'dart:convert';
+import 'package:smartvest/core/services/ble-health-service.dart';
 import 'package:smartvest/config/app_routes.dart';
 import 'package:google_fonts/google_fonts.dart';
-
-import '../../core/services/ble-health-service.dart';
 
 // --- DESIGN SYSTEM ---
 class AppColors {
@@ -50,6 +49,7 @@ class _SearchingDeviceScreenState extends State<SearchingDeviceScreen> {
   StreamSubscription<List<ScanResult>>? _scanResultsSubscription;
   StreamSubscription<BluetoothAdapterState>? _adapterStateSubscription;
   StreamSubscription<bool>? _isScanningSubscription;
+  StreamSubscription<Map<String, dynamic>>? _healthServiceStatusSubscription;
 
   final Guid _esp32ServiceUuid = Guid("d751e04f-3ee7-4d5a-b40d-c9f92ea9c56c");
   final Guid _esp32IdentifierCharacteristicUuid = Guid("02d0732d-304a-4195-b687-5b1525a05ca9");
@@ -58,10 +58,11 @@ class _SearchingDeviceScreenState extends State<SearchingDeviceScreen> {
 
   final BleHealthService _bleHealthService = BleHealthService();
 
-  // Debug variables
+  // Enhanced debug variables
   String _debugInfo = "Initializing...";
   Map<String, dynamic> _healthServiceStats = {};
   List<String> _recentMessages = [];
+  bool _isDataFlowing = false;
 
   @override
   void initState() {
@@ -69,6 +70,7 @@ class _SearchingDeviceScreenState extends State<SearchingDeviceScreen> {
     _initializeDeviceConnectionFields();
     _initBluetooth();
     _listenToHealthServiceStatus();
+    _checkForStoredConnection();
   }
 
   @override
@@ -76,19 +78,38 @@ class _SearchingDeviceScreenState extends State<SearchingDeviceScreen> {
     _scanResultsSubscription?.cancel();
     _adapterStateSubscription?.cancel();
     _isScanningSubscription?.cancel();
+    _healthServiceStatusSubscription?.cancel();
     FlutterBluePlus.stopScan();
     super.dispose();
   }
 
   void _listenToHealthServiceStatus() {
-    _bleHealthService.statusStream.listen((status) {
+    _healthServiceStatusSubscription = _bleHealthService.statusStream.listen((status) {
       if (mounted) {
         setState(() {
           _healthServiceStats = status['stats'] ?? {};
+          _isDataFlowing = _healthServiceStats['isConnected'] == true;
           _addRecentMessage(status['message'] ?? 'Status update');
         });
       }
     });
+  }
+
+  Future<void> _checkForStoredConnection() async {
+    final storedData = await _bleHealthService.getStoredDeviceInfo();
+    if (storedData['deviceId'] != null) {
+      _addRecentMessage("Found stored device: ${storedData['deviceId']}");
+      setState(() => _debugInfo = "Found stored device, attempting to resume...");
+
+      bool resumed = await _bleHealthService.resumeMonitoringFromStorage();
+      if (resumed) {
+        _addRecentMessage("Successfully resumed monitoring");
+        setState(() => _debugInfo = "Monitoring resumed from storage");
+      } else {
+        _addRecentMessage("Could not resume, device may need reconnection");
+        setState(() => _debugInfo = "Stored device not available, scan for devices");
+      }
+    }
   }
 
   void _addRecentMessage(String message) {
@@ -251,7 +272,7 @@ class _SearchingDeviceScreenState extends State<SearchingDeviceScreen> {
             setState(() => _debugInfo = "Device already bound, starting data monitoring...");
             _addRecentMessage("Device bound, starting monitoring");
 
-            // Start health data monitoring with the background service
+            // Start health data monitoring with the persistent service
             bool success = await _bleHealthService.startHealthDataMonitoring(
                 device,
                 esp32IdFromCharacteristic,
@@ -327,7 +348,7 @@ class _SearchingDeviceScreenState extends State<SearchingDeviceScreen> {
         setState(() => _debugInfo = "Starting health data monitoring...");
         _addRecentMessage("Starting health monitoring");
 
-        // Start health data monitoring with the background service
+        // Start health data monitoring with the persistent service
         bool success = await _bleHealthService.startHealthDataMonitoring(
             device,
             esp32Id,
@@ -381,7 +402,21 @@ class _SearchingDeviceScreenState extends State<SearchingDeviceScreen> {
                 final currentTime = DateTime.now().millisecondsSinceEpoch ~/ 1000;
                 String timeCommand = "TIME:$currentTime";
                 await characteristic.write(utf8.encode(timeCommand), withoutResponse: !characteristic.properties.write);
+                debugPrint('BLE_DEBUG:: Sent time sync: $timeCommand');
                 _addRecentMessage("Sent time sync");
+
+                // Send user ID for data association
+                String userIdCommand = "USER_ID:${_user!.uid}";
+                await characteristic.write(utf8.encode(userIdCommand), withoutResponse: !characteristic.properties.write);
+                debugPrint('BLE_DEBUG:: Sent user ID: $userIdCommand');
+                _addRecentMessage("Sent user ID");
+
+                // Send timezone offset for proper human time calculation
+                final timezoneOffset = DateTime.now().timeZoneOffset.inHours;
+                String timezoneCommand = "TIMEZONE:$timezoneOffset";
+                await characteristic.write(utf8.encode(timezoneCommand), withoutResponse: !characteristic.properties.write);
+                debugPrint('BLE_DEBUG:: Sent timezone: $timezoneCommand');
+                _addRecentMessage("Sent timezone");
 
                 return true;
               }
@@ -441,7 +476,7 @@ class _SearchingDeviceScreenState extends State<SearchingDeviceScreen> {
       ),
       body: Column(
         children: [
-          // Debug info panel
+          // Enhanced debug info panel
           Container(
             width: double.infinity,
             margin: const EdgeInsets.all(16),
@@ -457,8 +492,8 @@ class _SearchingDeviceScreenState extends State<SearchingDeviceScreen> {
                 Row(
                   children: [
                     Icon(
-                      _bleHealthService.isConnected ? Icons.radio_button_checked : Icons.radio_button_unchecked,
-                      color: _bleHealthService.isConnected ? AppColors.successColor : AppColors.secondaryText,
+                      _isDataFlowing ? Icons.radio_button_checked : Icons.radio_button_unchecked,
+                      color: _isDataFlowing ? AppColors.successColor : AppColors.secondaryText,
                       size: 16,
                     ),
                     const SizedBox(width: 8),

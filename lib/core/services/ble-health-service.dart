@@ -201,10 +201,18 @@ class BleHealthService {
       return;
     }
 
-    // Validate JSON
+    // Validate and enhance JSON
+    Map<String, dynamic>? jsonData;
     try {
-      final jsonData = jsonDecode(payload);
-      debugPrint('BLE_HEALTH_SERVICE:: Payload is valid JSON with keys: ${jsonData.keys.join(', ')}');
+      jsonData = jsonDecode(payload);
+      debugPrint('BLE_HEALTH_SERVICE:: Payload is valid JSON with keys: ${jsonData?.keys.join(', ')}');
+
+      // Log specific data points for debugging
+      debugPrint('BLE_HEALTH_SERVICE:: Time valid: ${jsonData?['time_valid']}');
+      debugPrint('BLE_HEALTH_SERVICE:: Human time: ${jsonData?['human_time']}');
+      debugPrint('BLE_HEALTH_SERVICE:: User ID: ${jsonData?['user_id']}');
+      debugPrint('BLE_HEALTH_SERVICE:: Epoch time: ${jsonData?['epoch_time']}');
+
     } catch (e) {
       debugPrint('BLE_HEALTH_SERVICE:: Payload is NOT valid JSON. Error: $e');
       debugPrint('BLE_HEALTH_SERVICE:: Raw payload: "$payload"');
