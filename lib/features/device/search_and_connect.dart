@@ -4,11 +4,12 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'dart:convert';
-import 'package:smartvest/core/services/mqtt_service.dart';
 import 'package:smartvest/config/app_routes.dart';
 import 'package:google_fonts/google_fonts.dart';
 
-// --- DESIGN SYSTEM (Using the established system for consistency) ---
+import '../../core/services/ble-health-service.dart';
+
+// --- DESIGN SYSTEM ---
 class AppColors {
   static const Color background = Color(0xFFF7F8FC);
   static const Color cardBackground = Colors.white;
@@ -16,6 +17,8 @@ class AppColors {
   static const Color secondaryText = Color(0xFF8A94A6);
   static const Color profileColor = Color(0xFF5667FD);
   static const Color heartRateColor = Color(0xFFF25C54);
+  static const Color successColor = Color(0xFF4CAF50);
+  static const Color errorColor = Color(0xFFF44336);
 }
 
 class AppTextStyles {
@@ -28,7 +31,6 @@ class AppTextStyles {
   static final TextStyle buttonText = GoogleFonts.poppins(
       fontSize: 14, fontWeight: FontWeight.w600, color: Colors.white);
 }
-// --- END OF DESIGN SYSTEM ---
 
 class SearchingDeviceScreen extends StatefulWidget {
   const SearchingDeviceScreen({super.key});
@@ -37,7 +39,6 @@ class SearchingDeviceScreen extends StatefulWidget {
 }
 
 class _SearchingDeviceScreenState extends State<SearchingDeviceScreen> {
-  // --- STATE & LOGIC (Functionality is preserved, no changes here) ---
   bool _isScanning = false;
   bool _noDeviceFound = false;
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
@@ -49,16 +50,25 @@ class _SearchingDeviceScreenState extends State<SearchingDeviceScreen> {
   StreamSubscription<List<ScanResult>>? _scanResultsSubscription;
   StreamSubscription<BluetoothAdapterState>? _adapterStateSubscription;
   StreamSubscription<bool>? _isScanningSubscription;
+
   final Guid _esp32ServiceUuid = Guid("d751e04f-3ee7-4d5a-b40d-c9f92ea9c56c");
   final Guid _esp32IdentifierCharacteristicUuid = Guid("02d0732d-304a-4195-b687-5b1525a05ca9");
   final Guid _esp32PairCommandCharacteristicUuid = Guid("6f5f12ed-2ea6-4a3b-9191-4d7e4ade9d5a");
-  final MqttService _mqttService = MqttService();
+  final Guid _esp32HealthDataCharacteristicUuid = Guid("87654321-4321-4321-4321-cba987654321");
+
+  final BleHealthService _bleHealthService = BleHealthService();
+
+  // Debug variables
+  String _debugInfo = "Initializing...";
+  Map<String, dynamic> _healthServiceStats = {};
+  List<String> _recentMessages = [];
 
   @override
   void initState() {
     super.initState();
     _initializeDeviceConnectionFields();
     _initBluetooth();
+    _listenToHealthServiceStatus();
   }
 
   @override
@@ -70,8 +80,31 @@ class _SearchingDeviceScreenState extends State<SearchingDeviceScreen> {
     super.dispose();
   }
 
+  void _listenToHealthServiceStatus() {
+    _bleHealthService.statusStream.listen((status) {
+      if (mounted) {
+        setState(() {
+          _healthServiceStats = status['stats'] ?? {};
+          _addRecentMessage(status['message'] ?? 'Status update');
+        });
+      }
+    });
+  }
+
+  void _addRecentMessage(String message) {
+    if (mounted) {
+      setState(() {
+        _recentMessages.insert(0, "${DateTime.now().toString().substring(11, 19)}: $message");
+        if (_recentMessages.length > 5) {
+          _recentMessages.removeLast();
+        }
+      });
+    }
+  }
+
   Future<void> _initBluetooth() async {
     if (await FlutterBluePlus.isSupported == false) {
+      setState(() => _debugInfo = "Bluetooth not supported");
       return;
     }
     _startListeningToAdapterState();
@@ -80,7 +113,9 @@ class _SearchingDeviceScreenState extends State<SearchingDeviceScreen> {
   void _startListeningToAdapterState() {
     _adapterStateSubscription = FlutterBluePlus.adapterState.listen((state) {
       if (mounted) {
-        setState(() {}); // Re-build to reflect adapter state change
+        setState(() {
+          _debugInfo = "Bluetooth state: $state";
+        });
         if (state == BluetoothAdapterState.on) {
           _startScan();
         }
@@ -97,6 +132,7 @@ class _SearchingDeviceScreenState extends State<SearchingDeviceScreen> {
       _noDeviceFound = false;
       _scanResults = [];
       _connectingDevice = null;
+      _debugInfo = "Scanning for devices...";
     });
 
     try {
@@ -110,6 +146,7 @@ class _SearchingDeviceScreenState extends State<SearchingDeviceScreen> {
             }
             setState(() {
               _scanResults = uniqueResults.values.toList();
+              _debugInfo = "Found ${_scanResults.length} devices";
             });
           }
         },
@@ -123,6 +160,7 @@ class _SearchingDeviceScreenState extends State<SearchingDeviceScreen> {
           if (!scanning && _scanResults.isEmpty) {
             setState(() {
               _noDeviceFound = true;
+              _debugInfo = "No devices found";
             });
           }
         }
@@ -134,89 +172,201 @@ class _SearchingDeviceScreenState extends State<SearchingDeviceScreen> {
       );
 
     } catch (e) {
-      if (mounted) setState(() { _isScanning = false; _noDeviceFound = true; });
+      if (mounted) {
+        setState(() {
+          _isScanning = false;
+          _noDeviceFound = true;
+          _debugInfo = "Scan error: $e";
+        });
+      }
     }
   }
 
   Future<void> _connectToDevice(BluetoothDevice device) async {
     if (_connectingDevice != null || _isBindingDevice) return;
+
     setState(() {
       _connectingDevice = device;
       _isBindingDevice = true;
+      _debugInfo = "Connecting to ${device.platformName}...";
     });
+
+    _addRecentMessage("Connecting to ${device.platformName}");
     await FlutterBluePlus.stopScan();
+
     try {
       await device.connect(timeout: const Duration(seconds: 20));
+      setState(() => _debugInfo = "Connected! Discovering services...");
+      _addRecentMessage("Connected successfully");
+
       List<BluetoothService> services = await device.discoverServices();
+      setState(() => _debugInfo = "Found ${services.length} services");
+      _addRecentMessage("Found ${services.length} services");
+
       String? esp32IdFromCharacteristic;
+      BluetoothCharacteristic? healthDataCharacteristic;
+
       bool identifierFound = false;
+
       for (BluetoothService service in services) {
         if (service.uuid == _esp32ServiceUuid) {
+          setState(() => _debugInfo = "Found main service, reading identifier...");
           for (BluetoothCharacteristic characteristic in service.characteristics) {
             if (characteristic.uuid == _esp32IdentifierCharacteristicUuid) {
               List<int> value = await characteristic.read();
               esp32IdFromCharacteristic = String.fromCharCodes(value).trim();
               identifierFound = true;
-              break;
+              setState(() => _debugInfo = "Device ID: $esp32IdFromCharacteristic");
+              _addRecentMessage("Device ID: $esp32IdFromCharacteristic");
             }
           }
         }
-        if (identifierFound) break;
+
+        // Look for health service
+        if (service.uuid == Guid("12345678-1234-1234-1234-123456789abc")) {
+          setState(() => _debugInfo = "Found health service...");
+          _addRecentMessage("Found health service");
+          for (BluetoothCharacteristic characteristic in service.characteristics) {
+            if (characteristic.uuid == _esp32HealthDataCharacteristicUuid) {
+              healthDataCharacteristic = characteristic;
+              setState(() => _debugInfo = "Found health data characteristic");
+              _addRecentMessage("Found health data characteristic");
+            }
+          }
+        }
+
+        if (identifierFound && healthDataCharacteristic != null) break;
       }
-      if (identifierFound && esp32IdFromCharacteristic != null && esp32IdFromCharacteristic.isNotEmpty) {
+
+      if (identifierFound && esp32IdFromCharacteristic != null && esp32IdFromCharacteristic.isNotEmpty && healthDataCharacteristic != null) {
+        setState(() => _debugInfo = "Checking device binding...");
+
         final esp32BindingRef = _firestore.collection('esp32_bindings').doc(esp32IdFromCharacteristic);
         DocumentSnapshot esp32BindingDoc = await esp32BindingRef.get();
+
         if (esp32BindingDoc.exists) {
           Map<String, dynamic> bindingData = esp32BindingDoc.data() as Map<String, dynamic>;
           if (bindingData['boundToUserUid'] == _user!.uid && bindingData['isActivelyBound'] == true) {
             await _updateUserDeviceStatus(esp32IdFromCharacteristic, device.remoteId.toString(), true, true);
-            await _mqttService.connectAndSubscribe(esp32IdFromCharacteristic);
-            if (mounted) Navigator.pushReplacementNamed(context, AppRoutes.dashboard);
+            setState(() => _debugInfo = "Device already bound, starting data monitoring...");
+            _addRecentMessage("Device bound, starting monitoring");
+
+            // Start health data monitoring with the background service
+            bool success = await _bleHealthService.startHealthDataMonitoring(
+                device,
+                esp32IdFromCharacteristic,
+                healthDataCharacteristic
+            );
+
+            if (success) {
+              _addRecentMessage("Health monitoring started successfully");
+              // Navigate to dashboard after a short delay to ensure monitoring is established
+              await Future.delayed(const Duration(seconds: 2));
+              if (mounted) Navigator.pushReplacementNamed(context, AppRoutes.dashboard);
+            } else {
+              setState(() => _debugInfo = "Failed to start health monitoring");
+              await device.disconnect();
+            }
           } else if (bindingData['isActivelyBound'] == true) {
+            setState(() => _debugInfo = "Device bound to another user");
+            _addRecentMessage("Device bound to another user");
             await device.disconnect();
           } else {
-            await _performNewBinding(device, esp32IdFromCharacteristic, device.remoteId.toString());
+            await _performNewBinding(device, esp32IdFromCharacteristic, device.remoteId.toString(), healthDataCharacteristic);
           }
         } else {
-          await _performNewBinding(device, esp32IdFromCharacteristic, device.remoteId.toString());
+          await _performNewBinding(device, esp32IdFromCharacteristic, device.remoteId.toString(), healthDataCharacteristic);
         }
       } else {
+        setState(() => _debugInfo = "Could not find required characteristics");
+        _addRecentMessage("Missing required characteristics");
         await device.disconnect();
       }
     } catch (e) {
+      setState(() => _debugInfo = "Connection error: $e");
+      _addRecentMessage("Connection error: $e");
       await device.disconnect();
     } finally {
-      if (mounted) setState(() { _connectingDevice = null; _isBindingDevice = false; });
+      if (mounted) {
+        setState(() {
+          _connectingDevice = null;
+          _isBindingDevice = false;
+        });
+      }
     }
   }
 
-  Future<void> _performNewBinding(BluetoothDevice device, String esp32Id, String macAddress) async {
-    setState(() => _isBindingDevice = true);
+  Future<void> _performNewBinding(BluetoothDevice device, String esp32Id, String macAddress, BluetoothCharacteristic healthDataCharacteristic) async {
+    setState(() {
+      _isBindingDevice = true;
+      _debugInfo = "Performing new device binding...";
+    });
+    _addRecentMessage("Starting new binding");
+
     try {
       bool esp32Paired = await _sendPairCommandToEsp32(device, esp32Id);
       if (esp32Paired) {
+        setState(() => _debugInfo = "Pairing successful, updating database...");
+        _addRecentMessage("Pairing successful");
+
         await _firestore.collection('users').doc(_user!.uid).update({
-          'esp32Identifier': esp32Id, 'esp32MacAddress': macAddress, 'isDeviceBound': true,
-          'hasDeviceConnected': true, 'previouslyHasDeviceConnected': true,
+          'esp32Identifier': esp32Id,
+          'esp32MacAddress': macAddress,
+          'isDeviceBound': true,
+          'hasDeviceConnected': true,
+          'previouslyHasDeviceConnected': true,
         });
-        await _mqttService.connectAndSubscribe(esp32Id);
+
         await _firestore.collection('esp32_bindings').doc(esp32Id).set({
-          'boundToUserUid': _user!.uid, 'macAddress': macAddress,
-          'firstBoundAt': FieldValue.serverTimestamp(), 'isActivelyBound': true,
+          'boundToUserUid': _user!.uid,
+          'macAddress': macAddress,
+          'firstBoundAt': FieldValue.serverTimestamp(),
+          'isActivelyBound': true,
         });
-        if (mounted) Navigator.pushReplacementNamed(context, AppRoutes.dashboard);
+
+        setState(() => _debugInfo = "Starting health data monitoring...");
+        _addRecentMessage("Starting health monitoring");
+
+        // Start health data monitoring with the background service
+        bool success = await _bleHealthService.startHealthDataMonitoring(
+            device,
+            esp32Id,
+            healthDataCharacteristic
+        );
+
+        if (success) {
+          _addRecentMessage("Health monitoring started successfully");
+          // Navigate to dashboard after a short delay
+          await Future.delayed(const Duration(seconds: 2));
+          if (mounted) Navigator.pushReplacementNamed(context, AppRoutes.dashboard);
+        } else {
+          setState(() => _debugInfo = "Failed to start health monitoring");
+          await device.disconnect();
+        }
       } else {
+        setState(() => _debugInfo = "Pairing failed");
+        _addRecentMessage("Pairing failed");
         await device.disconnect();
       }
     } catch (e) {
+      setState(() => _debugInfo = "Binding error: $e");
+      _addRecentMessage("Binding error: $e");
       await device.disconnect();
     } finally {
-      if (mounted) setState(() { _isBindingDevice = false; _connectingDevice = null; });
+      if (mounted) {
+        setState(() {
+          _isBindingDevice = false;
+          _connectingDevice = null;
+        });
+      }
     }
   }
 
   Future<bool> _sendPairCommandToEsp32(BluetoothDevice device, String esp32Id) async {
     try {
+      setState(() => _debugInfo = "Sending pair command...");
+      _addRecentMessage("Sending pair command");
+
       List<BluetoothService> services = await device.discoverServices();
       for (BluetoothService service in services) {
         if (service.uuid == _esp32ServiceUuid) {
@@ -225,6 +375,14 @@ class _SearchingDeviceScreenState extends State<SearchingDeviceScreen> {
               if (characteristic.properties.write || characteristic.properties.writeWithoutResponse) {
                 String command = "PAIR:${_user!.uid}";
                 await characteristic.write(utf8.encode(command), withoutResponse: !characteristic.properties.write);
+                _addRecentMessage("Sent pair command");
+
+                // Send current time for synchronization
+                final currentTime = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+                String timeCommand = "TIME:$currentTime";
+                await characteristic.write(utf8.encode(timeCommand), withoutResponse: !characteristic.properties.write);
+                _addRecentMessage("Sent time sync");
+
                 return true;
               }
             }
@@ -233,6 +391,7 @@ class _SearchingDeviceScreenState extends State<SearchingDeviceScreen> {
       }
       return false;
     } catch (e) {
+      _addRecentMessage("Pair command error: $e");
       return false;
     }
   }
@@ -267,13 +426,132 @@ class _SearchingDeviceScreenState extends State<SearchingDeviceScreen> {
         centerTitle: false,
         actions: [
           if (_isScanning)
-            IconButton(icon: const Icon(Icons.stop_circle_outlined), onPressed: FlutterBluePlus.stopScan, tooltip: "Stop Scan")
+            IconButton(
+                icon: const Icon(Icons.stop_circle_outlined),
+                onPressed: FlutterBluePlus.stopScan,
+                tooltip: "Stop Scan"
+            )
           else
-            IconButton(icon: const Icon(Icons.refresh_rounded), onPressed: _startScan, tooltip: "Rescan"),
+            IconButton(
+                icon: const Icon(Icons.refresh_rounded),
+                onPressed: _startScan,
+                tooltip: "Rescan"
+            ),
         ],
       ),
-      body: Center(
-        child: _buildBody(),
+      body: Column(
+        children: [
+          // Debug info panel
+          Container(
+            width: double.infinity,
+            margin: const EdgeInsets.all(16),
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: AppColors.cardBackground,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: AppColors.secondaryText.withOpacity(0.3)),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Icon(
+                      _bleHealthService.isConnected ? Icons.radio_button_checked : Icons.radio_button_unchecked,
+                      color: _bleHealthService.isConnected ? AppColors.successColor : AppColors.secondaryText,
+                      size: 16,
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      'Debug Info',
+                      style: AppTextStyles.cardTitle.copyWith(fontSize: 14),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  _debugInfo,
+                  style: AppTextStyles.secondaryInfo.copyWith(fontSize: 12),
+                ),
+                if (_healthServiceStats.isNotEmpty) ...[
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'BLE: ${_healthServiceStats['dataPacketsReceived'] ?? 0} received',
+                              style: AppTextStyles.secondaryInfo.copyWith(
+                                fontSize: 11,
+                                color: AppColors.profileColor,
+                              ),
+                            ),
+                            Text(
+                              'MQTT: ${_healthServiceStats['mqttPublishCount'] ?? 0} sent, ${_healthServiceStats['mqttErrors'] ?? 0} errors',
+                              style: AppTextStyles.secondaryInfo.copyWith(
+                                fontSize: 11,
+                                color: (_healthServiceStats['mqttErrors'] ?? 0) > 0 ? AppColors.errorColor : AppColors.successColor,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+                if (_healthServiceStats['lastReceivedData'] != null && _healthServiceStats['lastReceivedData'] != "None") ...[
+                  const SizedBox(height: 8),
+                  Text(
+                    'Last data: ${_healthServiceStats['lastReceivedData']}',
+                    style: AppTextStyles.secondaryInfo.copyWith(
+                      fontSize: 10,
+                      fontFamily: 'monospace',
+                    ),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
+              ],
+            ),
+          ),
+
+          // Recent messages panel
+          if (_recentMessages.isNotEmpty)
+            Container(
+              width: double.infinity,
+              margin: const EdgeInsets.symmetric(horizontal: 16),
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: AppColors.cardBackground,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: AppColors.secondaryText.withOpacity(0.3)),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Recent Activity',
+                    style: AppTextStyles.cardTitle.copyWith(fontSize: 14),
+                  ),
+                  const SizedBox(height: 8),
+                  ...(_recentMessages.take(3).map((msg) => Padding(
+                    padding: const EdgeInsets.only(bottom: 2),
+                    child: Text(
+                      msg,
+                      style: AppTextStyles.secondaryInfo.copyWith(fontSize: 10),
+                    ),
+                  ))),
+                ],
+              ),
+            ),
+
+          const SizedBox(height: 16),
+          Expanded(
+            child: Center(child: _buildBody()),
+          ),
+        ],
       ),
     );
   }
@@ -305,7 +583,11 @@ class _SearchingDeviceScreenState extends State<SearchingDeviceScreen> {
           const SizedBox(height: 24),
           ElevatedButton(
             onPressed: () async => await FlutterBluePlus.turnOn(),
-            style: ElevatedButton.styleFrom(backgroundColor: AppColors.profileColor, foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12)),
+            style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.profileColor,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12)
+            ),
             child: Text("Turn On Bluetooth", style: AppTextStyles.buttonText),
           ),
         ],
@@ -343,7 +625,11 @@ class _SearchingDeviceScreenState extends State<SearchingDeviceScreen> {
           const SizedBox(height: 24),
           ElevatedButton(
             onPressed: _startScan,
-            style: ElevatedButton.styleFrom(backgroundColor: AppColors.profileColor, foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12)),
+            style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.profileColor,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12)
+            ),
             child: Text('Try Again', style: AppTextStyles.buttonText),
           ),
           TextButton(
@@ -373,7 +659,10 @@ class _SearchingDeviceScreenState extends State<SearchingDeviceScreen> {
           ),
           child: ListTile(
             contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-            leading: const CircleAvatar(backgroundColor: AppColors.background, child: Icon(Icons.bluetooth_rounded, color: AppColors.profileColor)),
+            leading: const CircleAvatar(
+                backgroundColor: AppColors.background,
+                child: Icon(Icons.bluetooth_rounded, color: AppColors.profileColor)
+            ),
             title: Text(deviceName, style: AppTextStyles.cardTitle),
             subtitle: Text(result.device.remoteId.toString(), style: AppTextStyles.secondaryInfo),
             trailing: ElevatedButton(
@@ -386,7 +675,11 @@ class _SearchingDeviceScreenState extends State<SearchingDeviceScreen> {
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
               ),
               child: isConnectingThisDevice
-                  ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                  ? const SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2)
+              )
                   : Text('Bind', style: AppTextStyles.buttonText.copyWith(fontSize: 12)),
             ),
           ),
