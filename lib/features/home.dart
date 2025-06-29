@@ -1,27 +1,26 @@
-import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
-import 'package:firebase_database/firebase_database.dart';
 import 'dart:async';
-import 'package:google_fonts/google_fonts.dart'; // Using Google Fonts for a modern feel
+import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_database/firebase_database.dart';
 import 'package:fl_chart/fl_chart.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:health/health.dart';
-import 'package:flutter_staggered_grid_view/flutter_staggered_grid_view.dart'; // For the bento-style grid
+import 'package:flutter_staggered_grid_view/flutter_staggered_grid_view.dart';
+import 'package:intl/intl.dart';
+import 'package:flutter_markdown/flutter_markdown.dart';
 
 // Assuming these are defined in your project
 import 'package:smartvest/config/app_routes.dart';
 import 'package:smartvest/core/services/health_service.dart';
+import 'package:smartvest/core/services/gemini_service.dart';
 
 // --- [1] CLEAN & MODERN DESIGN SYSTEM ---
-// A new design system inspired by modern health apps, featuring a light background,
-// clean cards, and vibrant accent colors.
 class AppColors {
   static const Color background = Color(0xFFF7F8FC);
   static const Color cardBackground = Colors.white;
   static const Color primaryText = Color(0xFF333333);
   static const Color secondaryText = Color(0xFF8A94A6);
-
-  // Data-specific colors for icons and charts
   static const Color heartRateColor = Color(0xFFF25C54);
   static const Color oxygenColor = Color(0xFF27AE60);
   static const Color postureColor = Color(0xFF2F80ED);
@@ -30,31 +29,26 @@ class AppColors {
 }
 
 class AppTextStyles {
-  // Using 'Poppins' for a friendly and modern look.
   static final TextStyle heading = GoogleFonts.poppins(
     fontSize: 24,
     fontWeight: FontWeight.bold,
     color: AppColors.primaryText,
   );
-
   static final TextStyle cardTitle = GoogleFonts.poppins(
-    fontSize: 14, // Adjusted for better fit
+    fontSize: 14,
     fontWeight: FontWeight.w600,
     color: AppColors.primaryText,
   );
-
   static final TextStyle metricValue = GoogleFonts.poppins(
     fontSize: 28,
     fontWeight: FontWeight.bold,
     color: AppColors.primaryText,
   );
-
   static final TextStyle metricUnit = GoogleFonts.poppins(
     fontSize: 14,
     fontWeight: FontWeight.w500,
     color: AppColors.secondaryText,
   );
-
   static final TextStyle secondaryInfo = GoogleFonts.poppins(
     fontSize: 12,
     fontWeight: FontWeight.normal,
@@ -71,10 +65,10 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  // --- STATE MANAGEMENT & DATA LOGIC (UNCHANGED) ---
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final HealthService _healthService = HealthService();
+  final GeminiService _geminiService = GeminiService();
 
   User? _user;
   Map<String, dynamic>? _userData;
@@ -86,6 +80,10 @@ class _HomeScreenState extends State<HomeScreen> {
 
   StreamSubscription? _healthMonitorSubscription;
   Map<dynamic, dynamic>? _latestHealthData;
+  List<Map<dynamic, dynamic>> _recentFirebaseData = [];
+
+  String _globalAiSummary = "Tap to generate your daily wellness summary.";
+  bool _isGeneratingSummary = false;
 
   bool _isLoading = true;
   String _errorMessage = '';
@@ -102,7 +100,65 @@ class _HomeScreenState extends State<HomeScreen> {
     super.dispose();
   }
 
-  // All data fetching and calculation logic remains exactly the same.
+  Future<void> _generateGlobalAiSummary({bool forceRefresh = false}) async {
+    if (_isGeneratingSummary) return;
+
+    if (_recentFirebaseData.isEmpty && _heartRateDataPoints.isEmpty && _spo2DataPoints.isEmpty) {
+      if (mounted) setState(() => _globalAiSummary = "Not enough data to generate a summary for today.");
+      return;
+    }
+
+    setState(() {
+      _isGeneratingSummary = true;
+      _globalAiSummary = "Analyzing your day's data...";
+    });
+
+    try {
+      final promptData = StringBuffer();
+      final userName = _userData?['firstName'] ?? 'User';
+      promptData.writeln("Analyze the following daily health data for $userName and provide a holistic summary.");
+
+      if (_heartRateStats != null && _heartRateStats!.avg != null) {
+        promptData.writeln("\n- Heart Rate: Average of ${_heartRateStats!.avg!.toStringAsFixed(0)} BPM, Min of ${_heartRateStats!.min?.toStringAsFixed(0)}, Max of ${_heartRateStats!.max?.toStringAsFixed(0)}.");
+      }
+      if (_spo2Stats != null && _spo2Stats!.avg != null) {
+        promptData.writeln("- Blood Oxygen: Average of ${_spo2Stats!.avg!.toStringAsFixed(1)}%, Min of ${_spo2Stats!.min?.toStringAsFixed(1)}, Max of ${_spo2Stats!.max?.toStringAsFixed(1)}.");
+      }
+      if (_recentFirebaseData.isNotEmpty) {
+        final postureScores = _recentFirebaseData.where((d) => d['posture'] != null).map((d) => d['posture']['rulaScore']).toList();
+        final stressScores = _recentFirebaseData.where((d) => d['stress'] != null).map((d) => d['stress']['gsrReading']).toList();
+        if (postureScores.isNotEmpty) {
+          promptData.writeln("- Posture: Recorded ${postureScores.length} posture readings. The RULA scores ranged from ${postureScores.reduce((a, b) => a < b ? a : b)} (best) to ${postureScores.reduce((a, b) => a > b ? a : b)} (worst).");
+        }
+        if (stressScores.isNotEmpty) {
+          promptData.writeln("- Stress: Recorded ${stressScores.length} GSR readings, indicating fluctuations in stress levels throughout the day.");
+        }
+      }
+      promptData.writeln("\nProvide a summary that: \n1. Gives a friendly, overall status. \n2. Highlights any correlations (e.g., 'stress levels seemed to rise when posture was poor'). \n3. Offers one or two simple, actionable recommendations for tomorrow. Use markdown for formatting.");
+
+      // Use the new global summary method from the service
+      final summary = await _geminiService.getGlobalSummary(promptData.toString());
+
+      if (mounted) {
+        setState(() {
+          _globalAiSummary = summary;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _globalAiSummary = "Sorry, I couldn't generate a summary right now. Please try again.";
+        });
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isGeneratingSummary = false;
+        });
+      }
+    }
+  }
+
   Future<void> _fetchAllData() async {
     if (!mounted) return;
     setState(() { _isLoading = true; _errorMessage = ''; });
@@ -132,15 +188,28 @@ class _HomeScreenState extends State<HomeScreen> {
   void _initFirebaseRealtimeListener() {
     final databaseReference = FirebaseDatabase.instance.ref('healthMonitor/data');
     _healthMonitorSubscription?.cancel();
-    _healthMonitorSubscription = databaseReference.limitToLast(1).onValue.listen((event) {
+    _healthMonitorSubscription = databaseReference.limitToLast(50).onValue.listen((event) {
       if (event.snapshot.value != null && mounted) {
-        final data = event.snapshot.value as Map<dynamic, dynamic>;
-        final String latestKey = data.keys.first;
-        final latestEntry = data.values.first as Map<dynamic, dynamic>?;
-        if (latestEntry != null) {
-          latestEntry['epochTime'] = int.tryParse(latestKey) ?? 0;
+        final dataMap = event.snapshot.value as Map<dynamic, dynamic>;
+        final List<Map<dynamic, dynamic>> tempList = [];
+
+        dataMap.forEach((key, value) {
+          final entry = value as Map<dynamic, dynamic>;
+          final epochSeconds = entry['epochTime'] as int? ?? int.tryParse(key.toString());
+          if (epochSeconds != null) {
+            entry['parsedTimestamp'] = DateTime.fromMillisecondsSinceEpoch(epochSeconds * 1000);
+            tempList.add(entry);
+          }
+        });
+
+        tempList.sort((a, b) => a['parsedTimestamp'].compareTo(b['parsedTimestamp']));
+
+        if (tempList.isNotEmpty) {
+          setState(() {
+            _latestHealthData = tempList.last;
+            _recentFirebaseData = tempList;
+          });
         }
-        setState(() => _latestHealthData = latestEntry);
       }
     }, onError: (error) {
       if (mounted) setState(() => _errorMessage = "Failed to load sensor data.");
@@ -170,18 +239,12 @@ class _HomeScreenState extends State<HomeScreen> {
 
   bool _isDataFromToday(Map<dynamic, dynamic>? data) {
     if (data == null) return false;
-    final epochSeconds = data['epochTime'];
-    if (epochSeconds == null || epochSeconds is! int) return false;
-    try {
-      final dataTimestamp = DateTime.fromMillisecondsSinceEpoch(epochSeconds * 1000);
-      final now = DateTime.now();
-      return dataTimestamp.year == now.year && dataTimestamp.month == now.month && dataTimestamp.day == now.day;
-    } catch (e) {
-      return false;
-    }
+    final timestamp = data['parsedTimestamp'];
+    if (timestamp == null || timestamp is! DateTime) return false;
+    final now = DateTime.now();
+    return timestamp.year == now.year && timestamp.month == now.month && timestamp.day == now.day;
   }
 
-  // --- MODERNIZED UI BUILD METHOD ---
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -190,8 +253,7 @@ class _HomeScreenState extends State<HomeScreen> {
         backgroundColor: AppColors.background,
         elevation: 0,
         title: Text('Home Dashboard', style: AppTextStyles.heading),
-        actions: [
-        ],
+        actions: [],
       ),
       body: _isLoading && _userData == null
           ? const Center(child: CircularProgressIndicator(color: AppColors.primaryText))
@@ -203,13 +265,17 @@ class _HomeScreenState extends State<HomeScreen> {
           padding: const EdgeInsets.all(16.0),
           child: _errorMessage.isNotEmpty
               ? Center(child: Text(_errorMessage, style: const TextStyle(color: Colors.red)))
-              : _buildBentoGrid(),
+              : Column(
+            children: [
+              _buildBentoGrid(),
+              const SizedBox(height: 16),
+              _buildAiSummaryCard(),
+            ],
+          ),
         ),
       ),
     );
   }
-
-  // --- MODERNIZED UI WIDGETS ---
 
   Widget _buildBentoGrid() {
     return StaggeredGrid.count(
@@ -219,27 +285,27 @@ class _HomeScreenState extends State<HomeScreen> {
       children: [
         StaggeredGridTile.count(
           crossAxisCellCount: 2,
-          mainAxisCellCount: 0.9, // Adjusted height
+          mainAxisCellCount: 0.9,
           child: _buildUserProfileCard(),
         ),
         StaggeredGridTile.count(
           crossAxisCellCount: 1,
-          mainAxisCellCount: 1.3, // Adjusted height
+          mainAxisCellCount: 1.3,
           child: _buildHeartRateCard(),
         ),
         StaggeredGridTile.count(
           crossAxisCellCount: 1,
-          mainAxisCellCount: 1.3, // Adjusted height
+          mainAxisCellCount: 1.3,
           child: _buildSpo2Card(),
         ),
         StaggeredGridTile.count(
           crossAxisCellCount: 1,
-          mainAxisCellCount: 1.3, // Adjusted height
+          mainAxisCellCount: 1.3,
           child: _buildPostureCard(),
         ),
         StaggeredGridTile.count(
           crossAxisCellCount: 1,
-          mainAxisCellCount: 1.3, // Adjusted height
+          mainAxisCellCount: 1.3,
           child: _buildStressCard(),
         ),
       ],
@@ -278,17 +344,51 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  // ** MODIFIED WIDGET FOR PROFILE CARD **
-  // This widget now builds its own card structure to have a custom header layout.
+  Widget _buildFirebaseLineChart(List<Map<dynamic, dynamic>> data, String dataKey, String nestedKey, Color lineColor) {
+    if (data.isEmpty) {
+      return Center(child: Text("No chart data.", style: AppTextStyles.secondaryInfo));
+    }
+
+    final spots = data.map((entry) {
+      final value = entry[dataKey]?[nestedKey]?.toDouble() ?? 0.0;
+      final timestamp = (entry['parsedTimestamp'] as DateTime).millisecondsSinceEpoch.toDouble();
+      return FlSpot(timestamp, value);
+    }).toList();
+
+    return LineChart(
+      LineChartData(
+        gridData: const FlGridData(show: false),
+        titlesData: const FlTitlesData(show: false),
+        borderData: FlBorderData(show: false),
+        lineBarsData: [
+          LineChartBarData(
+            spots: spots,
+            isCurved: true,
+            color: lineColor,
+            barWidth: 2.5,
+            isStrokeCapRound: true,
+            dotData: const FlDotData(show: false),
+            belowBarData: BarAreaData(
+              show: true,
+              gradient: LinearGradient(
+                colors: [lineColor.withOpacity(0.3), lineColor.withOpacity(0.0)],
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildUserProfileCard() {
     final String firstName = _userData?['firstName'] ?? 'User';
     String? photoUrl = _userData?['photoURL'] ?? _user?.photoURL;
     photoUrl = (photoUrl == null || photoUrl.isEmpty) ? null : photoUrl;
 
     return GestureDetector(
-      onTap: () {
-        // TODO: Navigate to a detailed profile screen if it exists.
-      },
+      onTap: () => Navigator.pushNamed(context, AppRoutes.profile),
       child: Container(
         padding: const EdgeInsets.all(12.0),
         decoration: BoxDecoration(
@@ -305,19 +405,14 @@ class _HomeScreenState extends State<HomeScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Custom header with icon and title in a Row
             Row(
               children: [
-                Icon(Icons.person, color: AppColors.profileColor, size: 24),
+                const Icon(Icons.person, color: AppColors.profileColor, size: 24),
                 const SizedBox(width: 8),
-                Text(
-                  "Profile",
-                  style: AppTextStyles.cardTitle,
-                ),
+                Text("Profile", style: AppTextStyles.cardTitle),
               ],
             ),
             const SizedBox(height: 8),
-            // The main content of the profile card
             Expanded(
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.center,
@@ -327,8 +422,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     backgroundColor: AppColors.profileColor.withOpacity(0.2),
                     backgroundImage: photoUrl != null ? NetworkImage(photoUrl) : null,
                     child: photoUrl == null
-                        ? Text(firstName.isNotEmpty ? firstName[0] : 'U',
-                        style: AppTextStyles.heading.copyWith(color: AppColors.profileColor))
+                        ? Text(firstName.isNotEmpty ? firstName[0] : 'U', style: AppTextStyles.heading.copyWith(color: AppColors.profileColor))
                         : null,
                   ),
                   const SizedBox(width: 12),
@@ -364,7 +458,7 @@ class _HomeScreenState extends State<HomeScreen> {
     return HealthMetricCard(
       onTap: () => Navigator.pushNamed(context, AppRoutes.heartRateScreen),
       title: "Heart rate",
-      icon: Icons.favorite,
+      icon: Icons.favorite_rounded,
       iconColor: AppColors.heartRateColor,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -399,7 +493,7 @@ class _HomeScreenState extends State<HomeScreen> {
     return HealthMetricCard(
       onTap: () => Navigator.pushNamed(context, AppRoutes.oxygenSaturationScreen),
       title: "Blood oxygen",
-      icon: Icons.bloodtype,
+      icon: Icons.bloodtype_rounded,
       iconColor: AppColors.oxygenColor,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -414,6 +508,7 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
             ),
           ),
+          Text('Just now', style: AppTextStyles.secondaryInfo),
           Expanded(
             child: Padding(
               padding: const EdgeInsets.only(top: 8.0),
@@ -428,28 +523,32 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget _buildPostureCard() {
     final bool hasDataForToday = _isDataFromToday(_latestHealthData);
     final postureData = hasDataForToday ? _latestHealthData!['posture'] : null;
-    final String status = postureData?['rulaAssessment']?.replaceAll('_', ' ') ?? '...';
+    final String status = postureData?['rulaAssessment']?.replaceAll('_', ' ') ?? 'No Data';
 
     return HealthMetricCard(
       onTap: () => Navigator.pushNamed(context, AppRoutes.postureScreen),
       title: "Posture",
-      icon: Icons.accessibility_new,
+      icon: Icons.accessibility_new_rounded,
       iconColor: AppColors.postureColor,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            hasDataForToday ? status : 'No data',
+            status,
             style: AppTextStyles.metricValue.copyWith(color: AppColors.postureColor, fontSize: 24),
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
           ),
           Text('Live', style: AppTextStyles.secondaryInfo),
-          const Spacer(),
-          Center(
-            child: Icon(Icons.align_vertical_bottom, size: 50, color: AppColors.postureColor.withOpacity(0.2)),
+          const SizedBox(height: 8),
+          Expanded(
+            child: _buildFirebaseLineChart(
+              _recentFirebaseData,
+              'posture',
+              'rulaScore',
+              AppColors.postureColor,
+            ),
           ),
-          const Spacer(),
         ],
       ),
     );
@@ -458,35 +557,84 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget _buildStressCard() {
     final bool hasDataForToday = _isDataFromToday(_latestHealthData);
     final stressData = hasDataForToday ? _latestHealthData!['stress'] : null;
-    final String level = stressData?['stressLevel']?.replaceAll('_', ' ') ?? '...';
+    final String level = stressData?['stressLevel']?.replaceAll('_', ' ') ?? 'No Data';
 
     return HealthMetricCard(
       onTap: () => Navigator.pushNamed(context, AppRoutes.stressLevelScreen),
       title: "Stress",
-      icon: Icons.bolt,
+      icon: Icons.bolt_rounded,
       iconColor: AppColors.stressColor,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            hasDataForToday ? level : 'No data',
+            level,
             style: AppTextStyles.metricValue.copyWith(color: AppColors.stressColor, fontSize: 24),
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
           ),
-          const Spacer(),
-          Center(
-            child: Icon(Icons.psychology, size: 50, color: AppColors.stressColor.withOpacity(0.2)),
+          Text('Live', style: AppTextStyles.secondaryInfo),
+          const SizedBox(height: 8),
+          Expanded(
+            child: _buildFirebaseLineChart(
+              _recentFirebaseData,
+              'stress',
+              'gsrReading',
+              AppColors.stressColor,
+            ),
           ),
-          const Spacer(),
         ],
+      ),
+    );
+  }
+
+  Widget _buildAiSummaryCard() {
+    return GestureDetector(
+      onTap: (_globalAiSummary.contains("Tap to generate") && !_isGeneratingSummary)
+          ? () => _generateGlobalAiSummary(forceRefresh: true)
+          : null,
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          color: AppColors.cardBackground,
+          borderRadius: BorderRadius.circular(20),
+          boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, 4))],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.auto_awesome_rounded, color: AppColors.profileColor, size: 24),
+                const SizedBox(width: 8),
+                Expanded(child: Text("Daily AI Summary", style: AppTextStyles.cardTitle.copyWith(fontSize: 16))),
+                if (!_isGeneratingSummary)
+                  IconButton(
+                    icon: const Icon(Icons.refresh, size: 20, color: AppColors.secondaryText),
+                    onPressed: () => _generateGlobalAiSummary(forceRefresh: true),
+                    tooltip: 'Refresh Summary',
+                  ),
+              ],
+            ),
+            const Divider(height: 24, color: AppColors.background),
+            if (_isGeneratingSummary)
+              const Center(child: CircularProgressIndicator(color: AppColors.profileColor))
+            else
+              MarkdownBody(
+                data: _globalAiSummary,
+                styleSheet: MarkdownStyleSheet.fromTheme(Theme.of(context)).copyWith(
+                  p: AppTextStyles.secondaryInfo.copyWith(fontSize: 14, height: 1.5),
+                  listBullet: AppTextStyles.secondaryInfo.copyWith(fontSize: 14, height: 1.5),
+                ),
+              ),
+          ],
+        ),
       ),
     );
   }
 }
 
-// --- [2] REUSABLE HEALTH METRIC CARD WIDGET ---
-// This widget creates the clean, rounded card style seen in the reference image.
 class HealthMetricCard extends StatelessWidget {
   final Widget child;
   final String title;
@@ -523,15 +671,13 @@ class HealthMetricCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+            Row(
               children: [
                 Icon(icon, color: iconColor, size: 24),
-                const SizedBox(height: 4),
+                const SizedBox(width: 8),
                 Text(
                   title,
                   style: AppTextStyles.cardTitle,
-                  overflow: TextOverflow.ellipsis,
                 ),
               ],
             ),

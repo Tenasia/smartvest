@@ -6,25 +6,32 @@ import 'package:intl/intl.dart';
 
 
 class GeminiService {
-  // Your actual API Key is correctly stored here.
   final String _apiKey = "AIzaSyDA03m67MzO-a012URe8LPTaQd-1toxQBE";
 
-  // --- vvv MODIFIED THIS FUNCTION SIGNATURE AND PROMPT vvv ---
+  // NEW: A dedicated method for the holistic summary on the Home Screen
+  Future<String> getGlobalSummary(String prompt) async {
+    if (_apiKey == "YOUR_GEMINI_API_KEY") {
+      return "## AI Summary Disabled\n\nPlease add your Gemini API Key to enable this feature.";
+    }
+    // This method simply takes the pre-formatted prompt from the home screen
+    // and calls the API helper.
+    return _callGeminiAPI(prompt);
+  }
+
+  // This function for individual metric screens remains unchanged
   Future<String> getHealthSummary(
       String metricName, List<HealthDataPoint> dataPoints, int? userAge, String timePeriodDescription) async {
+    // ... Unchanged ...
     if (_apiKey == "YOUR_GEMINI_API_KEY") {
       return "## AI Summary Disabled\n\nPlease add your Gemini API Key in `lib/core/services/gemini_service.dart` to enable this feature.";
     }
-
     if (dataPoints.isEmpty) {
       return "No data available to generate a summary for $metricName.";
     }
-
     final dataSummary = dataPoints
         .map((p) =>
     '${(p.value as NumericHealthValue).numericValue.toStringAsFixed(1)} at ${p.dateFrom.toLocal().hour}:${p.dateFrom.toLocal().minute}')
         .join(', ');
-
     final prompt = """
       You are a friendly and encouraging health assistant.
       Analyze the following health data for a user and provide a concise, easy-to-understand summary.
@@ -40,25 +47,23 @@ class GeminiService {
 
       Format the entire response in simple Markdown.
       """;
-
     return _callGeminiAPI(prompt);
   }
 
-  /// Generates a health summary from a raw data string (e.g., from Firebase).
+  // This function for individual metric screens remains unchanged
   Future<String> getSummaryFromRawString({
     required String metricName,
     required String dataSummary,
     required int? userAge,
     required String analysisInstructions,
   }) async {
+    // ... Unchanged ...
     if (_apiKey == "YOUR_GEMINI_API_KEY") {
       return "## AI Summary Disabled\n\nPlease add your Gemini API Key to enable this feature.";
     }
-
     if (dataSummary.isEmpty) {
       return "No data available to generate a summary for $metricName.";
     }
-
     final prompt = """
       You are a friendly and encouraging health assistant.
       Analyze the following health data for a user and provide a concise, easy-to-understand summary in Markdown format.
@@ -73,15 +78,13 @@ class GeminiService {
       **Instructions:**
       $analysisInstructions
       """;
-
     return _callGeminiAPI(prompt);
   }
 
-  /// Private helper to handle the HTTP request to the Gemini API.
+  // This private helper remains unchanged
   Future<String> _callGeminiAPI(String prompt) async {
     final url = Uri.parse(
         'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=$_apiKey');
-
     final headers = {'Content-Type': 'application/json'};
     final body = jsonEncode({
       'contents': [
@@ -92,12 +95,10 @@ class GeminiService {
         }
       ]
     });
-
     try {
       final response = await http.post(url, headers: headers, body: body);
       if (response.statusCode == 200) {
         final decodedResponse = jsonDecode(response.body);
-        // Add robust checking for the response structure
         if (decodedResponse.containsKey('candidates') &&
             decodedResponse['candidates'] is List &&
             decodedResponse['candidates'].isNotEmpty &&
@@ -109,8 +110,7 @@ class GeminiService {
         }
         return "Sorry, I received an unexpected response format from the AI.";
       } else {
-        debugPrint(
-            'Gemini API Error: ${response.statusCode}\n${response.body}');
+        debugPrint('Gemini API Error: ${response.statusCode}\n${response.body}');
         return "Sorry, I couldn't generate a summary right now (Error: ${response.statusCode}). Please check your API key and billing settings.";
       }
     } catch (e) {
