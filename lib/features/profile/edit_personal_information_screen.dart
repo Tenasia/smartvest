@@ -1,12 +1,31 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/cupertino.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:intl/intl.dart'; // For date formatting and parsing
+import 'package:intl/intl.dart';
+import 'package:google_fonts/google_fonts.dart';
+
+// --- DESIGN SYSTEM (Using the established system for consistency) ---
+class AppColors {
+  static const Color background = Color(0xFFF7F8FC);
+  static const Color cardBackground = Colors.white;
+  static const Color primaryText = Color(0xFF333333);
+  static const Color secondaryText = Color(0xFF8A94A6);
+  static const Color profileColor = Color(0xFF5667FD);
+}
+
+class AppTextStyles {
+  static final TextStyle heading = GoogleFonts.poppins(
+      fontSize: 24, fontWeight: FontWeight.bold, color: AppColors.primaryText);
+  static final TextStyle bodyText = GoogleFonts.poppins(
+      fontSize: 14, fontWeight: FontWeight.w500, color: AppColors.primaryText);
+  static final TextStyle buttonText = GoogleFonts.poppins(
+      fontSize: 16, fontWeight: FontWeight.w600, color: Colors.white);
+}
+// --- END OF DESIGN SYSTEM ---
+
 
 class EditPersonalInformationScreen extends StatefulWidget {
   const EditPersonalInformationScreen({super.key});
-
   @override
   State<EditPersonalInformationScreen> createState() =>
       _EditPersonalInformationScreenState();
@@ -14,6 +33,7 @@ class EditPersonalInformationScreen extends StatefulWidget {
 
 class _EditPersonalInformationScreenState
     extends State<EditPersonalInformationScreen> {
+  // --- STATE & LOGIC (Functionality is preserved, no changes here) ---
   final _formKey = GlobalKey<FormState>();
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final User? _currentUser = FirebaseAuth.instance.currentUser;
@@ -22,21 +42,16 @@ class _EditPersonalInformationScreenState
   late TextEditingController _middleNameController;
   late TextEditingController _lastNameController;
   DateTime? _selectedBirthday;
-  String? _selectedGender; // This will store 'male', 'female', etc. (lowercase)
-
+  String? _selectedGender;
   bool _isLoading = true;
   String _errorMessage = '';
 
-  // Store actual values as lowercase, map to display text
   final Map<String, String> _genderDisplayMap = {
     'male': 'Male',
     'female': 'Female',
     'other': 'Other',
-    'prefer_not_to_say': 'Prefer not to say', // Using snake_case for consistency if needed
+    'prefer_not_to_say': 'Prefer not to say',
   };
-  // Or, if you only have a few and simple capitalization:
-  // final List<String> _genderOptionsValues = ['male', 'female', 'other', 'prefer not to say'];
-
 
   @override
   void initState() {
@@ -47,24 +62,23 @@ class _EditPersonalInformationScreenState
     _loadUserData();
   }
 
-  Future<void> _loadUserData() async {
-    setState(() {
-      _isLoading = true;
-      _errorMessage = '';
-    });
+  @override
+  void dispose() {
+    _firstNameController.dispose();
+    _middleNameController.dispose();
+    _lastNameController.dispose();
+    super.dispose();
+  }
 
+  Future<void> _loadUserData() async {
+    // ... Functionality is unchanged ...
+    setState(() { _isLoading = true; _errorMessage = ''; });
     if (_currentUser == null) {
-      setState(() {
-        _isLoading = false;
-        _errorMessage = 'User not logged in.';
-      });
+      setState(() { _isLoading = false; _errorMessage = 'User not logged in.'; });
       return;
     }
-
     try {
-      final docSnapshot =
-      await _firestore.collection('users').doc(_currentUser.uid).get();
-
+      final docSnapshot = await _firestore.collection('users').doc(_currentUser!.uid).get();
       if (docSnapshot.exists) {
         final userData = docSnapshot.data();
         if (userData != null) {
@@ -74,124 +88,83 @@ class _EditPersonalInformationScreenState
           if (userData['birthday'] != null && userData['birthday'] is Timestamp) {
             _selectedBirthday = (userData['birthday'] as Timestamp).toDate();
           }
-          // _selectedGender will be 'male', 'female', etc. from Firestore
           _selectedGender = userData['gender']?.toString().toLowerCase();
-
-          // Ensure the loaded gender is one of the valid options
-          if (_selectedGender != null && !_genderDisplayMap.containsKey(_selectedGender)) {
-            // If the stored gender value is not in our map (e.g. old data, or 'Male' was stored before)
-            // you might want to set it to null or a default, or attempt a conversion.
-            // For now, if it's not a key, it might cause an issue if not handled,
-            // but the toLowerCase() should help if 'Male' was previously stored.
-            // If a completely unknown value is there, it won't match.
-            // A more robust solution would be to ensure `_selectedGender` is one of the keys of `_genderDisplayMap`
-            // or null.
-            if (_genderDisplayMap.keys.map((k) => k.toLowerCase()).contains(_selectedGender)) {
-              _selectedGender = _genderDisplayMap.keys.firstWhere((k) => k.toLowerCase() == _selectedGender);
-            } else if (_selectedGender == "Male") { // explicit common case before fix
-              _selectedGender = "male";
-            } else if (_selectedGender == "Female") {
-              _selectedGender = "female";
-            }
-            // If _selectedGender is still not in _genderDisplayMap.keys, it will default to hintText
-          }
-
         }
       } else {
         _errorMessage = 'User profile data not found.';
       }
     } catch (e) {
       _errorMessage = 'Failed to load profile data: ${e.toString()}';
-      print("Error loading user data for edit: $e");
     } finally {
-      setState(() {
-        _isLoading = false;
-      });
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
   Future<void> _selectBirthday(BuildContext context) async {
     final DateTime? picked = await showDatePicker(
       context: context,
-      initialDate: _selectedBirthday ?? DateTime.now(),
+      initialDate: _selectedBirthday ?? DateTime.now().subtract(const Duration(days: 365 * 18)),
       firstDate: DateTime(1900),
       lastDate: DateTime.now(),
+      builder: (context, child) {
+        return Theme(
+          data: ThemeData.light().copyWith(
+            colorScheme: const ColorScheme.light(primary: AppColors.profileColor),
+            buttonTheme: const ButtonThemeData(textTheme: ButtonTextTheme.primary),
+          ),
+          child: child!,
+        );
+      },
     );
     if (picked != null && picked != _selectedBirthday) {
-      setState(() {
-        _selectedBirthday = picked;
-      });
+      setState(() => _selectedBirthday = picked);
     }
   }
 
   Future<void> _saveChanges() async {
-    if (!_formKey.currentState!.validate()) {
-      return;
-    }
+    if (!_formKey.currentState!.validate()) return;
     _formKey.currentState!.save();
-
     if (_currentUser == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('User not logged in.')),
-      );
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('User not logged in.')));
       return;
     }
-
-    setState(() {
-      _isLoading = true;
-    });
-
+    setState(() => _isLoading = true);
     Map<String, dynamic> dataToUpdate = {
       'firstName': _firstNameController.text.trim(),
       'middleName': _middleNameController.text.trim(),
       'lastName': _lastNameController.text.trim(),
-      'gender': _selectedGender, // Will save 'male', 'female', etc.
+      'gender': _selectedGender,
       'birthday': _selectedBirthday != null ? Timestamp.fromDate(_selectedBirthday!) : null,
     };
-
     try {
-      await _firestore
-          .collection('users')
-          .doc(_currentUser.uid)
-          .update(dataToUpdate);
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Personal information updated successfully!')),
-      );
-      Navigator.of(context).pop(); // Go back to profile screen
+      await _firestore.collection('users').doc(_currentUser!.uid).update(dataToUpdate);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Personal information updated successfully!')));
+        Navigator.of(context).pop();
+      }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Failed to update information: ${e.toString()}')),
-      );
+      if(mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to update information: ${e.toString()}')));
     } finally {
-      setState(() {
-        _isLoading = false;
-      });
+      if(mounted) setState(() => _isLoading = false);
     }
   }
 
-  @override
-  void dispose() {
-    _firstNameController.dispose();
-    _middleNameController.dispose();
-    _lastNameController.dispose();
-    super.dispose();
-  }
-
+  // --- MODERNIZED UI BUILD METHOD ---
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: AppColors.background,
       appBar: AppBar(
-        title: const Text('Edit Personal Information'),
+        title: Text('Personal Info', style: AppTextStyles.heading),
+        backgroundColor: AppColors.background,
+        elevation: 0,
+        iconTheme: const IconThemeData(color: AppColors.primaryText),
+        centerTitle: false,
       ),
       body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
+          ? const Center(child: CircularProgressIndicator(color: AppColors.primaryText))
           : _errorMessage.isNotEmpty
-          ? Center(
-        child: Padding(
-          padding: const EdgeInsets.all(16.0),
-          child: Text(_errorMessage, style: const TextStyle(color: Colors.red)),
-        ),
-      )
+          ? Center(child: Text(_errorMessage, style: const TextStyle(color: Colors.red)))
           : SingleChildScrollView(
         padding: const EdgeInsets.all(16.0),
         child: Form(
@@ -201,85 +174,89 @@ class _EditPersonalInformationScreenState
             children: <Widget>[
               TextFormField(
                 controller: _firstNameController,
-                decoration: const InputDecoration(labelText: 'First Name'),
-                validator: (value) {
-                  if (value == null || value.trim().isEmpty) {
-                    return 'Please enter your first name';
-                  }
-                  return null;
-                },
+                decoration: _buildInputDecoration(label: 'First Name', icon: Icons.person_outline_rounded),
+                validator: (value) => (value == null || value.trim().isEmpty) ? 'Please enter your first name' : null,
               ),
               const SizedBox(height: 16),
               TextFormField(
                 controller: _middleNameController,
-                decoration: const InputDecoration(labelText: 'Middle Name (Optional)'),
+                decoration: _buildInputDecoration(label: 'Middle Name (Optional)', icon: Icons.person_outline_rounded),
               ),
               const SizedBox(height: 16),
               TextFormField(
                 controller: _lastNameController,
-                decoration: const InputDecoration(labelText: 'Last Name'),
-                validator: (value) {
-                  if (value == null || value.trim().isEmpty) {
-                    return 'Please enter your last name';
-                  }
-                  return null;
-                },
+                decoration: _buildInputDecoration(label: 'Last Name', icon: Icons.person_outline_rounded),
+                validator: (value) => (value == null || value.trim().isEmpty) ? 'Please enter your last name' : null,
               ),
               const SizedBox(height: 24),
-              Text('Birthday', style: Theme.of(context).textTheme.titleSmall),
               InkWell(
                 onTap: () => _selectBirthday(context),
                 child: InputDecorator(
-                  decoration: const InputDecoration(
-                    contentPadding: EdgeInsets.symmetric(vertical: 15.0),
-                  ),
+                  decoration: _buildInputDecoration(label: 'Birthday', icon: Icons.cake_rounded),
                   child: Text(
                       _selectedBirthday != null
-                          ? DateFormat.yMMMd().format(_selectedBirthday!)
+                          ? DateFormat.yMMMMd().format(_selectedBirthday!)
                           : 'Select your birthday',
-                      style: TextStyle(
-                        fontSize: 16,
-                        color: _selectedBirthday == null ? Theme.of(context).hintColor : null,
+                      style: AppTextStyles.bodyText.copyWith(
+                          color: _selectedBirthday == null ? AppColors.secondaryText : AppColors.primaryText,
+                          fontSize: 16
                       )
                   ),
                 ),
               ),
               const SizedBox(height: 24),
               DropdownButtonFormField<String>(
-                value: _selectedGender, // This should be 'male', 'female', etc.
-                decoration: const InputDecoration(labelText: 'Gender'),
-                hint: const Text("Select Gender"), // Shows when _selectedGender is null
-                items: _genderDisplayMap.entries
-                    .map((entry) => DropdownMenuItem<String>(
-                  value: entry.key, // 'male', 'female'
-                  child: Text(entry.value), // 'Male', 'Female'
-                ))
-                    .toList(),
-                onChanged: (value) {
-                  setState(() {
-                    _selectedGender = value;
-                  });
-                },
-                // validator: (value) { // Optional: make gender mandatory
-                //   if (value == null || value.isEmpty) {
-                //     return 'Please select your gender';
-                //   }
-                //   return null;
-                // },
+                value: _selectedGender,
+                decoration: _buildInputDecoration(label: 'Gender', icon: Icons.wc_rounded),
+                hint: Text("Select Gender", style: AppTextStyles.bodyText.copyWith(color: AppColors.secondaryText)),
+                items: _genderDisplayMap.entries.map((entry) => DropdownMenuItem<String>(
+                  value: entry.key,
+                  child: Text(entry.value, style: AppTextStyles.bodyText),
+                )).toList(),
+                onChanged: (value) => setState(() => _selectedGender = value),
               ),
-              const SizedBox(height: 32),
+              const SizedBox(height: 40),
               ElevatedButton(
                 onPressed: _isLoading ? null : _saveChanges,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.profileColor,
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                ),
                 child: _isLoading
-                    ? const SizedBox(
-                    height: 20,
-                    width: 20,
-                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                    : const Text('Save Changes'),
+                    ? const SizedBox(height: 24, width: 24, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 3))
+                    : Text('Save Changes', style: AppTextStyles.buttonText),
               ),
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  // A reusable helper for consistent input field styling
+  InputDecoration _buildInputDecoration({required String label, required IconData icon}) {
+    return InputDecoration(
+      labelText: label,
+      labelStyle: const TextStyle(color: AppColors.secondaryText),
+      prefixIcon: Icon(icon, color: AppColors.secondaryText, size: 22),
+      filled: true,
+      fillColor: AppColors.cardBackground,
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12.0),
+        borderSide: BorderSide.none,
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12.0),
+        borderSide: const BorderSide(color: AppColors.profileColor, width: 2.0),
+      ),
+      errorBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12.0),
+        borderSide: const BorderSide(color: Colors.red, width: 1.5),
+      ),
+      focusedErrorBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12.0),
+        borderSide: const BorderSide(color: Colors.red, width: 2.0),
       ),
     );
   }

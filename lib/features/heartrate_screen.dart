@@ -8,28 +8,39 @@ import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'dart:async';
+import 'package:google_fonts/google_fonts.dart';
 
-// (Caching and Style constants remain the same)
+// --- DESIGN SYSTEM (Using the established system for consistency) ---
+class AppColors {
+  static const Color background = Color(0xFFF7F8FC);
+  static const Color cardBackground = Colors.white;
+  static const Color primaryText = Color(0xFF333333);
+  static const Color secondaryText = Color(0xFF8A94A6);
+  static const Color heartRateColor = Color(0xFFF25C54);
+  static const Color profileColor = Color(0xFF5667FD); // For AI/intellectual features
+}
+
+class AppTextStyles {
+  static final TextStyle heading = GoogleFonts.poppins(
+      fontSize: 24, fontWeight: FontWeight.bold, color: AppColors.primaryText);
+  static final TextStyle cardTitle = GoogleFonts.poppins(
+      fontSize: 16, fontWeight: FontWeight.w600, color: AppColors.primaryText);
+  static final TextStyle metricValue = GoogleFonts.poppins(
+      fontSize: 36, fontWeight: FontWeight.bold, color: AppColors.primaryText);
+  static final TextStyle metricUnit = GoogleFonts.poppins(
+      fontSize: 16, fontWeight: FontWeight.w500, color: AppColors.secondaryText);
+  static final TextStyle secondaryInfo = GoogleFonts.poppins(
+      fontSize: 12, fontWeight: FontWeight.normal, color: AppColors.secondaryText);
+  static final TextStyle bodyText = GoogleFonts.poppins(
+      fontSize: 14, fontWeight: FontWeight.normal, color: AppColors.primaryText);
+  static final TextStyle buttonText = GoogleFonts.poppins(
+      fontSize: 14, fontWeight: FontWeight.w600);
+}
+// --- END OF DESIGN SYSTEM ---
+
+// --- Caching Logic (Unchanged) ---
 String _cachedHeartRateSummary = "Generating summary...";
 DateTime? _lastHeartRateSummaryTimestamp;
-const Color _screenBgColor = Color(0xFFF5F5F5);
-const Color _cardBgColor = Colors.white;
-const Color _primaryTextColor = Color(0xFF333333);
-const Color _secondaryTextColor = Color(0xFF757575);
-const Color _accentColorBlue = Color(0xFF007AFF);
-const Color _heartRateColor = Color(0xFFF25C54);
-const Color _aiSummaryIconColor = Color(0xFF9B59B6);
-final BorderRadius _cardBorderRadius = BorderRadius.circular(12.0);
-const EdgeInsets _cardPadding = EdgeInsets.all(16.0);
-const double _cardElevation = 1.5;
-const TextStyle _generalCardTitleStyle = TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: _primaryTextColor);
-const TextStyle _summaryLabelStyle = TextStyle(fontSize: 12, color: _secondaryTextColor);
-const TextStyle _summaryValueStyle = TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: _primaryTextColor);
-const TextStyle _currentHrValueStyle = TextStyle(fontSize: 36, fontWeight: FontWeight.bold, color: _primaryTextColor);
-const TextStyle _currentHrUnitStyle = TextStyle(fontSize: 16, color: _secondaryTextColor);
-const TextStyle _currentHrTimeStyle = TextStyle(fontSize: 12, color: _secondaryTextColor);
-const TextStyle _chartAxisLabelStyle = TextStyle(fontSize: 10, color: _secondaryTextColor);
-const TextStyle _cardTitleStyle = TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: _secondaryTextColor);
 
 
 class HeartRateScreen extends StatefulWidget {
@@ -40,6 +51,7 @@ class HeartRateScreen extends StatefulWidget {
 }
 
 class _HeartRateScreenState extends State<HeartRateScreen> {
+  // --- STATE & LOGIC (Functionality is preserved, no changes here) ---
   final HealthService _healthService = HealthService();
   final GeminiService _geminiService = GeminiService();
   int _selectedSegment = 0;
@@ -56,9 +68,7 @@ class _HeartRateScreenState extends State<HeartRateScreen> {
     super.initState();
     _fetchDataForSegment();
     _periodicTimer = Timer.periodic(const Duration(minutes: 1), (timer) {
-      if(mounted) {
-        _fetchDataForSegment();
-      }
+      if(mounted) _fetchDataForSegment();
     });
   }
 
@@ -99,9 +109,7 @@ class _HeartRateScreenState extends State<HeartRateScreen> {
     }
 
     final currentStats = HealthStats(
-      min: min,
-      max: max,
-      avg: points.isEmpty ? 0 : sum / points.length,
+      min: min, max: max, avg: points.isEmpty ? 0 : sum / points.length,
       latest: points.isNotEmpty ? points.last : null,
     );
 
@@ -111,44 +119,28 @@ class _HeartRateScreenState extends State<HeartRateScreen> {
         _stats = currentStats;
         _isLoading = false;
       });
-
       _generateAiSummary();
     }
   }
 
-  // --- vvv MODIFIED THIS FUNCTION vvv ---
   Future<void> _generateAiSummary({bool forceRefresh = false}) async {
     if (!forceRefresh && _lastHeartRateSummaryTimestamp != null &&
         DateTime.now().difference(_lastHeartRateSummaryTimestamp!) < const Duration(hours: 1)) {
-      if(mounted) {
-        setState(() => _aiSummary = _cachedHeartRateSummary);
-      }
+      if(mounted) setState(() => _aiSummary = _cachedHeartRateSummary);
       return;
     }
-
     if (_dataPoints.isEmpty) {
       if (mounted) setState(() => _aiSummary = "Not enough data to generate a summary.");
       return;
     }
-
     if (mounted) setState(() => _aiSummary = "Generating new summary...");
-
-    // Determine the time period description based on the selected filter
     String timePeriodDescription;
     switch (_selectedSegment) {
-      case 0:
-        timePeriodDescription = "last 24 hours";
-        break;
-      case 1:
-        timePeriodDescription = "last 7 days";
-        break;
-      case 2:
-        timePeriodDescription = "last 30 days";
-        break;
-      default:
-        timePeriodDescription = "selected period";
+      case 0: timePeriodDescription = "last 24 hours"; break;
+      case 1: timePeriodDescription = "last 7 days"; break;
+      case 2: timePeriodDescription = "last 30 days"; break;
+      default: timePeriodDescription = "selected period";
     }
-
     User? user = FirebaseAuth.instance.currentUser;
     int? userAge;
     if (user != null) {
@@ -158,60 +150,61 @@ class _HeartRateScreenState extends State<HeartRateScreen> {
         userAge = DateTime.now().year - birthday.year;
       }
     }
-
-    // Pass the new description to the Gemini service
-    final summary = await _geminiService.getHealthSummary(
-      "Heart Rate",
-      _dataPoints,
-      userAge,
-      timePeriodDescription, // Pass the dynamic description
-    );
-
+    final summary = await _geminiService.getHealthSummary("Heart Rate", _dataPoints, userAge, timePeriodDescription);
     _cachedHeartRateSummary = summary;
     _lastHeartRateSummaryTimestamp = DateTime.now();
-
     if(mounted) setState(() => _aiSummary = summary);
   }
 
-  // --- vvv MODIFIED THIS WIDGET vvv ---
-  Widget _buildSummaryCard(String title, String summary, IconData icon, Color iconColor) {
-    return Card(
-      elevation: _cardElevation,
-      shape: RoundedRectangleBorder(borderRadius: _cardBorderRadius),
-      color: _cardBgColor,
-      margin: const EdgeInsets.only(bottom: 16.0, top: 16.0),
-      child: Padding(
-        padding: _cardPadding,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Icon(icon, color: iconColor, size: 20),
-                const SizedBox(width: 8),
-                Text(title.toUpperCase(), style: _cardTitleStyle),
-                const Spacer(),
-                SizedBox(
-                  height: 36,
-                  width: 36,
-                  child: IconButton(
-                    padding: EdgeInsets.zero,
-                    icon: const Icon(Icons.refresh, size: 20, color: _secondaryTextColor),
-                    onPressed: () => _generateAiSummary(forceRefresh: true),
-                    tooltip: 'Refresh Summary',
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            MarkdownBody(
-              data: summary,
-              styleSheet: MarkdownStyleSheet.fromTheme(Theme.of(context)).copyWith(
-                p: const TextStyle(color: _primaryTextColor),
-              ),
-            ),
+  // --- MODERNIZED UI BUILD METHOD ---
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: AppColors.background,
+      appBar: AppBar(
+        title: Text('Heart Rate', style: AppTextStyles.heading),
+        backgroundColor: AppColors.background,
+        elevation: 0,
+        iconTheme: const IconThemeData(color: AppColors.primaryText),
+        centerTitle: false,
+      ),
+      body: _isLoading && _dataPoints.isEmpty
+          ? const Center(child: CircularProgressIndicator(color: AppColors.primaryText))
+          : ListView(
+        padding: const EdgeInsets.symmetric(horizontal: 16.0),
+        children: <Widget>[
+          const SizedBox(height: 16),
+          _buildCurrentHeartRateCard(),
+          const SizedBox(height: 16),
+          _buildHeartRateGraphCard(),
+          const SizedBox(height: 16),
+          _buildSummaryCard(),
+          const SizedBox(height: 16),
+        ],
+      ),
+    );
+  }
+
+  // --- MODERNIZED UI WIDGETS ---
+
+  // A reusable card widget for consistent styling
+  Widget _buildInfoCard({required Widget child, String? title}) {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: AppColors.cardBackground,
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, 4))],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (title != null) ...[
+            Text(title, style: AppTextStyles.cardTitle),
+            const SizedBox(height: 16),
           ],
-        ),
+          child,
+        ],
       ),
     );
   }
@@ -219,204 +212,240 @@ class _HeartRateScreenState extends State<HeartRateScreen> {
   Widget _buildCurrentHeartRateCard() {
     final latestPoint = _stats.latest;
     final bpm = latestPoint != null ? (latestPoint.value as NumericHealthValue).numericValue.toStringAsFixed(0) : "--";
-    final time = latestPoint != null ? DateFormat('MMM d, hh:mm a').format(latestPoint.dateFrom.toLocal()) : "--";
+    final time = latestPoint != null ? DateFormat('MMM d, hh:mm a').format(latestPoint.dateFrom.toLocal()) : "No recent data";
 
-    return Card(
-      elevation: _cardElevation,
-      shape: RoundedRectangleBorder(borderRadius: _cardBorderRadius),
-      margin: const EdgeInsets.only(bottom: 20.0),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text("Latest Heart Rate", style: _generalCardTitleStyle),
-            const SizedBox(height: 12),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              crossAxisAlignment: CrossAxisAlignment.baseline,
-              textBaseline: TextBaseline.alphabetic,
-              children: [
-                RichText(
-                  text: TextSpan(
-                    text: bpm,
-                    style: _currentHrValueStyle,
-                    children: const <TextSpan>[TextSpan(text: ' BPM', style: _currentHrUnitStyle)],
-                  ),
-                ),
-                Text(time, style: _currentHrTimeStyle),
-              ],
+    return _buildInfoCard(
+      title: "Latest Reading",
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          RichText(
+            text: TextSpan(
+              text: bpm,
+              style: AppTextStyles.metricValue.copyWith(color: AppColors.heartRateColor),
+              children: [TextSpan(text: ' BPM', style: AppTextStyles.metricUnit)],
             ),
-          ],
-        ),
+          ),
+          Text(time, style: AppTextStyles.secondaryInfo),
+        ],
       ),
     );
   }
 
-  Widget _buildSummaryStatItem(String value, String label) {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Text(value, style: _summaryValueStyle),
-        const SizedBox(height: 2),
-        Text(label, style: _summaryLabelStyle),
-      ],
+  Widget _buildHeartRateGraphCard() {
+    return _buildInfoCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _buildSegmentedControl(),
+          const SizedBox(height: 24),
+          SizedBox(
+            height: 200,
+            child: _isLoading
+                ? const Center(child: CircularProgressIndicator(color: AppColors.heartRateColor))
+                : _dataPoints.isEmpty
+                ? Center(child: Text("No data for this period.", style: AppTextStyles.secondaryInfo))
+                : _buildBarChart(),
+          ),
+          const SizedBox(height: 24),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceAround,
+            children: [
+              _buildSummaryStatItem(_stats.max?.toStringAsFixed(0) ?? '--', "Maximum"),
+              _buildSummaryStatItem(_stats.avg?.toStringAsFixed(0) ?? '--', "Average"),
+              _buildSummaryStatItem(_stats.min?.toStringAsFixed(0) ?? '--', "Minimum"),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSummaryCard() {
+    return _buildInfoCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.auto_awesome_rounded, color: AppColors.profileColor, size: 24),
+              const SizedBox(width: 8),
+              Expanded(child: Text("AI Summary", style: AppTextStyles.cardTitle)),
+              IconButton(
+                icon: const Icon(Icons.refresh, size: 20, color: AppColors.secondaryText),
+                onPressed: () => _generateAiSummary(forceRefresh: true),
+                tooltip: 'Refresh Summary',
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          MarkdownBody(
+            data: _aiSummary,
+            styleSheet: MarkdownStyleSheet.fromTheme(Theme.of(context)).copyWith(
+              p: AppTextStyles.bodyText,
+              listBullet: AppTextStyles.bodyText,
+            ),
+          ),
+        ],
+      ),
     );
   }
 
   Widget _buildSegmentedControl() {
     final segments = ["Day", "Week", "Month"];
-    return Container(
-      padding: const EdgeInsets.symmetric(vertical: 8.0),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceAround,
-        children: List.generate(segments.length, (index) {
-          bool isSelected = _selectedSegment == index;
-          return ElevatedButton(
-            onPressed: () {
+    return Row(
+      children: List.generate(segments.length, (index) {
+        bool isSelected = _selectedSegment == index;
+        return Expanded(
+          child: GestureDetector(
+            onTap: () {
               setState(() => _selectedSegment = index);
               _fetchDataForSegment();
             },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: isSelected ? _accentColorBlue : Colors.grey.shade200,
-              foregroundColor: isSelected ? Colors.white : _secondaryTextColor,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-              elevation: isSelected ? 2 : 0,
+            child: Container(
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              decoration: BoxDecoration(
+                color: isSelected ? AppColors.heartRateColor : AppColors.background,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Text(
+                segments[index],
+                textAlign: TextAlign.center,
+                style: AppTextStyles.buttonText.copyWith(
+                  color: isSelected ? Colors.white : AppColors.secondaryText,
+                ),
+              ),
             ),
-            child: Text(segments[index]),
-          );
-        }),
-      ),
+          ),
+        );
+      }).expand((widget) => [widget, const SizedBox(width: 8)]).toList()..removeLast(),
     );
   }
 
-  Widget _buildBarChart() {
-    if (_dataPoints.isEmpty) {
-      return const Center(child: Text("No data for selected period."));
-    }
+  Widget _buildSummaryStatItem(String value, String label) {
+    return Column(
+      children: [
+        Text(value, style: AppTextStyles.cardTitle),
+        const SizedBox(height: 4),
+        Text(label, style: AppTextStyles.secondaryInfo),
+      ],
+    );
+  }
 
+  // in heartrate_screen.dart
+
+  Widget _buildBarChart() {
     bool isDayView = _selectedSegment == 0;
     List<BarChartGroupData> barGroups = [];
-
+    // Bar chart data generation logic is unchanged.
     if (isDayView) {
       Map<int, List<double>> hourlyData = {};
       for (var point in _dataPoints) {
         int hour = point.dateFrom.hour;
         double value = (point.value as NumericHealthValue).numericValue.toDouble();
-        if (!hourlyData.containsKey(hour)) {
-          hourlyData[hour] = [];
-        }
+        if (!hourlyData.containsKey(hour)) hourlyData[hour] = [];
         hourlyData[hour]!.add(value);
       }
       for (int hour = 0; hour < 24; hour++) {
-        double avgValue = hourlyData.containsKey(hour) && hourlyData[hour]!.isNotEmpty
-            ? hourlyData[hour]!.reduce((a, b) => a + b) / hourlyData[hour]!.length
-            : 0;
-        barGroups.add(BarChartGroupData(x: hour, barRods: [BarChartRodData(toY: avgValue, color: _heartRateColor, width: 8, borderRadius: const BorderRadius.only(topLeft: Radius.circular(2), topRight: Radius.circular(2)))]));
+        double avgValue = hourlyData.containsKey(hour) && hourlyData[hour]!.isNotEmpty ? hourlyData[hour]!.reduce((a, b) => a + b) / hourlyData[hour]!.length : 0;
+        barGroups.add(BarChartGroupData(x: hour, barRods: [BarChartRodData(toY: avgValue, color: AppColors.heartRateColor, width: 8, borderRadius: const BorderRadius.all(Radius.circular(2)))]));
       }
     } else {
       Map<int, List<double>> dailyData = {};
       for (var point in _dataPoints) {
         int daysSinceStart = point.dateFrom.difference(_chartStartTime!).inDays;
         double value = (point.value as NumericHealthValue).numericValue.toDouble();
-        if (!dailyData.containsKey(daysSinceStart)) {
-          dailyData[daysSinceStart] = [];
-        }
+        if (!dailyData.containsKey(daysSinceStart)) dailyData[daysSinceStart] = [];
         dailyData[daysSinceStart]!.add(value);
       }
       dailyData.forEach((day, values) {
         double avgValue = values.reduce((a, b) => a + b) / values.length;
-        barGroups.add(BarChartGroupData(x: day, barRods: [BarChartRodData(toY: avgValue, color: _heartRateColor, width: 12, borderRadius: const BorderRadius.only(topLeft: Radius.circular(2), topRight: Radius.circular(2)))]));
+        barGroups.add(BarChartGroupData(x: day, barRods: [BarChartRodData(toY: avgValue, color: AppColors.heartRateColor, width: 12, borderRadius: const BorderRadius.all(Radius.circular(2)))]));
       });
     }
 
     return BarChart(
       BarChartData(
-          alignment: BarChartAlignment.spaceAround,
-          maxY: (_stats.max ?? 120) + 20,
-          minY: 0,
-          barGroups: barGroups,
-          titlesData: FlTitlesData(
-            leftTitles: AxisTitles(sideTitles: SideTitles(showTitles: true, reservedSize: 40, interval: 24, getTitlesWidget: (value, meta) => SideTitleWidget(meta: meta, child: Text(value.toInt().toString(), style: _chartAxisLabelStyle)))),
-            rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-            topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-            bottomTitles: AxisTitles(
-              sideTitles: SideTitles(
-                showTitles: true,
-                reservedSize: 30,
-                interval: isDayView ? 6 : (_selectedSegment == 1 ? 1 : 5),
-                getTitlesWidget: (value, meta) {
-                  if (isDayView) {
-                    String text = '';
-                    switch (value.toInt()) {
-                      case 0: text = '00:00'; break;
-                      case 6: text = '06:00'; break;
-                      case 12: text = '12:00'; break;
-                      case 18: text = '18:00'; break;
-                      case 23: text = '00:00'; break;
-                    }
-                    return SideTitleWidget(meta: meta, child: Text(text, style: _chartAxisLabelStyle));
-                  } else {
-                    final date = _chartStartTime!.add(Duration(days: value.toInt()));
-                    return SideTitleWidget(meta: meta, child: Text(DateFormat.Md().format(date), style: _chartAxisLabelStyle));
+        alignment: BarChartAlignment.spaceAround,
+        maxY: (_stats.max ?? 120) + 20,
+        minY: (_stats.min ?? 40) - 20,
+        barGroups: barGroups,
+        titlesData: FlTitlesData(
+          leftTitles: AxisTitles(sideTitles: SideTitles(showTitles: true, reservedSize: 40, interval: 30, getTitlesWidget: (value, meta) => SideTitleWidget(meta: meta, child: Text(value.toInt().toString(), style: AppTextStyles.secondaryInfo)))),
+          rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+          topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+          bottomTitles: AxisTitles(
+            sideTitles: SideTitles(
+              showTitles: true,
+              reservedSize: 30,
+              // The interval tells the chart where to place ticks. 6 is perfect for 0, 6, 12, 18.
+              interval: 6,
+              getTitlesWidget: (value, meta) {
+                // --- THIS IS THE FIX ---
+                // We now check the value and only return a label for specific hours.
+                if (isDayView) {
+                  String text;
+                  switch (value.toInt()) {
+                    case 0:
+                      text = '12am';
+                      break;
+                    case 6:
+                      text = '6am';
+                      break;
+                    case 12:
+                      text = '12pm';
+                      break;
+                    case 18:
+                      text = '6pm';
+                      break;
+                    default:
+                    // For all other hours, return an empty container so nothing is drawn.
+                      return Container();
                   }
-                },
-              ),
+                  return SideTitleWidget(meta: meta, child: Text(text, style: AppTextStyles.secondaryInfo));
+                } else {
+                  // This logic for Week/Month view is fine.
+                  final date = _chartStartTime!.add(Duration(days: value.toInt()));
+                  // Adjust interval for week/month to prevent clutter there too.
+                  if (value.toInt() % (_selectedSegment == 1 ? 1 : 7) != 0) {
+                    return Container();
+                  }
+                  return SideTitleWidget(meta: meta, child: Text(DateFormat.Md().format(date), style: AppTextStyles.secondaryInfo));
+                }
+              },
             ),
           ),
-          gridData: FlGridData(show: true, drawVerticalLine: false, horizontalInterval: 24, getDrawingHorizontalLine: (value) => FlLine(color: Colors.grey.withOpacity(0.3), strokeWidth: 1)),
-          borderData: FlBorderData(show: true, border: Border(left: BorderSide(color: Colors.grey.withOpacity(0.3)), bottom: BorderSide(color: Colors.grey.withOpacity(0.3))))
-      ),
-    );
-  }
-
-  Widget _buildHeartRateGraphCard() {
-    return Card(
-      elevation: _cardElevation,
-      shape: RoundedRectangleBorder(borderRadius: _cardBorderRadius),
-      margin: const EdgeInsets.only(bottom: 20.0),
-      child: Padding(
-        padding: _cardPadding,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            _buildSegmentedControl(),
-            const SizedBox(height: 16),
-            SizedBox(height: 200, child: _isLoading ? const Center(child: CircularProgressIndicator()) : _buildBarChart()),
-            const SizedBox(height: 20),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceAround,
-              children: [
-                _buildSummaryStatItem(_stats.max?.toStringAsFixed(0) ?? '--', "Maximum BPM"),
-                _buildSummaryStatItem(_stats.min?.toStringAsFixed(0) ?? '--', "Minimum BPM"),
-                _buildSummaryStatItem(_stats.avg?.toStringAsFixed(0) ?? '--', "Average BPM"),
-              ],
-            ),
-          ],
         ),
-      ),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: _screenBgColor,
-      appBar: AppBar(
-        title: const Text('Heart Rate Details', style: TextStyle(color: _primaryTextColor)),
-        backgroundColor: _screenBgColor,
-        elevation: 0,
-        iconTheme: const IconThemeData(color: _primaryTextColor),
-      ),
-      body: _isLoading && _dataPoints.isEmpty
-          ? const Center(child: CircularProgressIndicator())
-          : ListView(
-        padding: const EdgeInsets.all(16.0),
-        children: <Widget>[
-          _buildCurrentHeartRateCard(),
-          _buildHeartRateGraphCard(),
-          _buildSummaryCard("AI HEART RATE SUMMARY", _aiSummary, Icons.auto_awesome, _aiSummaryIconColor),
-        ],
+        gridData: FlGridData(show: true, drawVerticalLine: false, horizontalInterval: 30, getDrawingHorizontalLine: (value) => FlLine(color: AppColors.secondaryText.withOpacity(0.1), strokeWidth: 1)),
+        borderData: FlBorderData(show: false),
+        barTouchData: BarTouchData(
+          touchTooltipData: BarTouchTooltipData(
+            getTooltipItem: (group, groupIndex, rod, rodIndex) {
+              String label;
+              if (isDayView) {
+                label = '${group.x.toInt()}:00 - ${group.x.toInt() + 1}:00';
+              } else {
+                final date = _chartStartTime!.add(Duration(days: group.x.toInt()));
+                label = DateFormat.yMMMMd().format(date);
+              }
+              return BarTooltipItem(
+                '$label\n',
+                const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14),
+                children: <TextSpan>[
+                  TextSpan(
+                    text: (rod.toY).toStringAsFixed(0),
+                    style: const TextStyle(color: AppColors.heartRateColor, fontSize: 14, fontWeight: FontWeight.w500),
+                  ),
+                  const TextSpan(
+                    text: ' BPM',
+                    style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w500),
+                  ),
+                ],
+              );
+            },
+          ),
+        ),
       ),
     );
   }

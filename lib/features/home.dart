@@ -3,41 +3,66 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'dart:async';
-import 'package:smartvest/config/app_routes.dart';
-import 'package:smartvest/core/services/health_service.dart';
+import 'package:google_fonts/google_fonts.dart'; // Using Google Fonts for a modern feel
 import 'package:fl_chart/fl_chart.dart';
 import 'package:health/health.dart';
-import 'package:intl/intl.dart';
-import 'package:percent_indicator/percent_indicator.dart'; // Import for visual gauges
+import 'package:flutter_staggered_grid_view/flutter_staggered_grid_view.dart'; // For the bento-style grid
 
-// --- Style Constants ---
-const Color _scaffoldBgColor = Color(0xFFF5F5F5);
-const Color _cardBgColor = Colors.white;
-const Color _primaryTextColor = Color(0xFF333333);
-const Color _secondaryTextColor = Color(0xFF757575);
-const Color _primaryAppColor = Color(0xFF4A79FF);
-const Color _heartIconColor = Color(0xFFF25C54);
-const Color _oxygenIconColor = Color(0xFF27AE60);
-const Color _postureIconColor = Color(0xFF007AFF);
-const Color _stressIconColor = Color(0xFFFFA000);
+// Assuming these are defined in your project
+import 'package:smartvest/config/app_routes.dart';
+import 'package:smartvest/core/services/health_service.dart';
 
+// --- [1] CLEAN & MODERN DESIGN SYSTEM ---
+// A new design system inspired by modern health apps, featuring a light background,
+// clean cards, and vibrant accent colors.
+class AppColors {
+  static const Color background = Color(0xFFF7F8FC);
+  static const Color cardBackground = Colors.white;
+  static const Color primaryText = Color(0xFF333333);
+  static const Color secondaryText = Color(0xFF8A94A6);
 
-final BorderRadius _cardBorderRadius = BorderRadius.circular(12.0);
-const EdgeInsets _cardPadding = EdgeInsets.all(16.0);
-const double _cardElevation = 1.5;
+  // Data-specific colors for icons and charts
+  static const Color heartRateColor = Color(0xFFF25C54);
+  static const Color oxygenColor = Color(0xFF27AE60);
+  static const Color postureColor = Color(0xFF2F80ED);
+  static const Color stressColor = Color(0xFFF2C94C);
+  static const Color profileColor = Color(0xFF5667FD);
+}
 
-const TextStyle _statValueStyle = TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: _primaryTextColor);
-const TextStyle _statLabelStyle = TextStyle(fontSize: 12, color: _secondaryTextColor);
-const TextStyle _heartRateBPMStyle = TextStyle(fontSize: 32, fontWeight: FontWeight.bold, color: _heartIconColor);
-const TextStyle _oxygenPercentStyle = TextStyle(fontSize: 32, fontWeight: FontWeight.bold, color: _oxygenIconColor);
-const TextStyle _postureStatusStyle = TextStyle(fontSize: 32, fontWeight: FontWeight.bold, color: _postureIconColor);
-const TextStyle _stressStatusStyle = TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: _stressIconColor);
-const TextStyle _unitStyle = TextStyle(fontSize: 16, fontWeight: FontWeight.normal, color: _secondaryTextColor);
-const TextStyle _averageStyle = TextStyle(fontSize: 13, color: Color(0xFF666666));
-const TextStyle _subtleTextStyle = TextStyle(fontSize: 12, color: _secondaryTextColor);
-const TextStyle _cardTitleStyle = TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: _secondaryTextColor);
+class AppTextStyles {
+  // Using 'Poppins' for a friendly and modern look.
+  static final TextStyle heading = GoogleFonts.poppins(
+    fontSize: 24,
+    fontWeight: FontWeight.bold,
+    color: AppColors.primaryText,
+  );
 
+  static final TextStyle cardTitle = GoogleFonts.poppins(
+    fontSize: 14, // Adjusted for better fit
+    fontWeight: FontWeight.w600,
+    color: AppColors.primaryText,
+  );
 
+  static final TextStyle metricValue = GoogleFonts.poppins(
+    fontSize: 28,
+    fontWeight: FontWeight.bold,
+    color: AppColors.primaryText,
+  );
+
+  static final TextStyle metricUnit = GoogleFonts.poppins(
+    fontSize: 14,
+    fontWeight: FontWeight.w500,
+    color: AppColors.secondaryText,
+  );
+
+  static final TextStyle secondaryInfo = GoogleFonts.poppins(
+    fontSize: 12,
+    fontWeight: FontWeight.normal,
+    color: AppColors.secondaryText,
+  );
+}
+
+// --- MAIN WIDGET ---
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
 
@@ -46,6 +71,7 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
+  // --- STATE MANAGEMENT & DATA LOGIC (UNCHANGED) ---
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final HealthService _healthService = HealthService();
@@ -58,7 +84,6 @@ class _HomeScreenState extends State<HomeScreen> {
   HealthStats? _spo2Stats;
   List<HealthDataPoint> _spo2DataPoints = [];
 
-  // Firebase Realtime Database state
   StreamSubscription? _healthMonitorSubscription;
   Map<dynamic, dynamic>? _latestHealthData;
 
@@ -77,20 +102,18 @@ class _HomeScreenState extends State<HomeScreen> {
     super.dispose();
   }
 
+  // All data fetching and calculation logic remains exactly the same.
   Future<void> _fetchAllData() async {
     if (!mounted) return;
     setState(() { _isLoading = true; _errorMessage = ''; });
-
     await _fetchUserData();
     _initFirebaseRealtimeListener();
-
     bool permissionsGranted = await _healthService.requestPermissions();
     if (permissionsGranted) {
       await _fetchHealthData();
     } else {
       if (mounted) setState(() => _errorMessage = 'Health permissions not granted.');
     }
-
     if (mounted) setState(() => _isLoading = false);
   }
 
@@ -114,20 +137,15 @@ class _HomeScreenState extends State<HomeScreen> {
         final data = event.snapshot.value as Map<dynamic, dynamic>;
         final String latestKey = data.keys.first;
         final latestEntry = data.values.first as Map<dynamic, dynamic>?;
-
         if (latestEntry != null) {
-          // Add the key as 'epochTime' for consistent processing
           latestEntry['epochTime'] = int.tryParse(latestKey) ?? 0;
         }
-        setState(() {
-          _latestHealthData = latestEntry;
-        });
+        setState(() => _latestHealthData = latestEntry);
       }
     }, onError: (error) {
       if (mounted) setState(() => _errorMessage = "Failed to load sensor data.");
     });
   }
-
 
   Future<void> _fetchHealthData() async {
     try {
@@ -137,7 +155,6 @@ class _HomeScreenState extends State<HomeScreen> {
       final hrPoints = await _healthService.getHealthData(todayStart, now, HealthDataType.HEART_RATE);
       final spo2Stats = await _healthService.getStatsForToday(HealthDataType.BLOOD_OXYGEN);
       final spo2Points = await _healthService.getHealthData(todayStart, now, HealthDataType.BLOOD_OXYGEN);
-
       if (mounted) {
         setState(() {
           _heartRateStats = hrStats;
@@ -151,369 +168,376 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  int? _calculateAge(Timestamp? birthdayTimestamp) {
-    if (birthdayTimestamp == null) return null;
-    final birthday = birthdayTimestamp.toDate();
-    final today = DateTime.now();
-    int age = today.year - birthday.year;
-    if (today.month < birthday.month || (today.month == birthday.month && today.day < birthday.day)) {
-      age--;
-    }
-    return age;
-  }
-
-  /// Checks if the provided sensor data object has a timestamp from today.
   bool _isDataFromToday(Map<dynamic, dynamic>? data) {
     if (data == null) return false;
-    // The new data has an 'epochTime' field with seconds since epoch.
     final epochSeconds = data['epochTime'];
-    if (epochSeconds == null || epochSeconds is! int) {
-      return false;
-    }
-
+    if (epochSeconds == null || epochSeconds is! int) return false;
     try {
-      // Convert epoch seconds to milliseconds for DateTime constructor
       final dataTimestamp = DateTime.fromMillisecondsSinceEpoch(epochSeconds * 1000);
       final now = DateTime.now();
-      return dataTimestamp.year == now.year &&
-          dataTimestamp.month == now.month &&
-          dataTimestamp.day == now.day;
+      return dataTimestamp.year == now.year && dataTimestamp.month == now.month && dataTimestamp.day == now.day;
     } catch (e) {
-      print("Error parsing timestamp in _isDataFromToday: $e");
       return false;
     }
   }
 
-
-  // --- UI WIDGETS ---
-
-  Widget _buildUserDetailsCard() {
-    final String firstName = _userData?['firstName'] ?? 'User';
-    final String location = "Manila, Philippines";
-    String? photoUrl = _userData?['photoURL'] ?? _user?.photoURL;
-    photoUrl = (photoUrl == null || photoUrl.isEmpty) ? "https://via.placeholder.com/100" : photoUrl;
-
-    final int? age = _calculateAge(_userData?['birthday'] as Timestamp?);
-    final int? heightCm = _userData?['heightCm'] as int?;
-    final double? weightKg = _userData?['weightKg'] as double?;
-
-    return Card(
-      elevation: _cardElevation,
-      shape: RoundedRectangleBorder(borderRadius: _cardBorderRadius),
-      margin: const EdgeInsets.only(bottom: 16.0),
-      child: Padding(
-        padding: _cardPadding,
-        child: Column(
-          children: [
-            Row(
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text("Hello, $firstName!", style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: _primaryTextColor)),
-                      const SizedBox(height: 4),
-                      Text(location, style: const TextStyle(fontSize: 14, color: _secondaryTextColor)),
-                    ],
-                  ),
-                ),
-                CircleAvatar(radius: 32, backgroundColor: Colors.grey.shade200, backgroundImage: NetworkImage(photoUrl)),
-              ],
-            ),
-            const SizedBox(height: 16),
-            Divider(color: Colors.grey.shade200),
-            const SizedBox(height: 16),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceAround,
-              children: [
-                _buildInfoStatItem(age != null ? age.toString() : '--', 'Age'),
-                _buildInfoStatItem(heightCm != null ? '${heightCm}cm' : '--', 'Height'),
-                _buildInfoStatItem(weightKg != null ? '${weightKg.toStringAsFixed(0)}kg' : '--', 'Weight'),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-  Widget _buildInfoStatItem(String value, String label) => Column(
-    children: [Text(value, style: _statValueStyle), const SizedBox(height: 2), Text(label, style: _statLabelStyle)],
-  );
-
-  Widget _buildLineChart(List<HealthDataPoint> data, Color lineColor) {
-    if (data.isEmpty) return const Center(child: Text("No chart data.", style: _subtleTextStyle));
-    final spots = data.map((p) => FlSpot((p.dateFrom.hour * 60 + p.dateFrom.minute).toDouble(), (p.value as NumericHealthValue).numericValue.toDouble())).toList();
-    return LineChart(LineChartData(gridData: const FlGridData(show: false), titlesData: const FlTitlesData(show: false), borderData: FlBorderData(show: false), lineBarsData: [LineChartBarData(spots: spots, isCurved: true, color: lineColor, barWidth: 3, isStrokeCapRound: true, dotData: const FlDotData(show: false), belowBarData: BarAreaData(show: true, color: lineColor.withOpacity(0.2)))]));
-  }
-
-  Widget _buildHeartRateCard() {
-    final currentBpm = _heartRateStats?.latest != null ? (_heartRateStats!.latest!.value as NumericHealthValue).numericValue.toStringAsFixed(0) : "--";
-    final averageBpm = _heartRateStats?.avg != null ? _heartRateStats!.avg!.toStringAsFixed(0) : "--";
-
-    return InkWell(
-      onTap: () => Navigator.pushNamed(context, AppRoutes.heartRateScreen),
-      borderRadius: _cardBorderRadius,
-      child: Card(
-        elevation: _cardElevation, shape: RoundedRectangleBorder(borderRadius: _cardBorderRadius),
-        child: Padding(
-          padding: _cardPadding,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text("HEART RATE", style: _cardTitleStyle.copyWith(color: _heartIconColor)),
-              const SizedBox(height: 8),
-              Row(children: [const Icon(Icons.favorite_rounded, color: _heartIconColor, size: 50), const SizedBox(width: 12), Expanded(child: RichText(text: TextSpan(text: currentBpm, style: _heartRateBPMStyle, children: const [TextSpan(text: ' BPM', style: _unitStyle)])))]),
-              const SizedBox(height: 12),
-              RichText(text: TextSpan(text: '24-Hour Average: ', style: _averageStyle, children: [TextSpan(text: '$averageBpm BPM', style: _averageStyle.copyWith(fontWeight: FontWeight.bold))])),
-              const SizedBox(height: 16),
-              SizedBox(height: 120, child: _buildLineChart(_heartRateDataPoints, _heartIconColor)),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildSpo2Card() {
-    final currentSpo2 = _spo2Stats?.latest != null ? (_spo2Stats!.latest!.value as NumericHealthValue).numericValue.toStringAsFixed(0) : "--";
-    final averageSpo2 = _spo2Stats?.avg != null ? _spo2Stats!.avg!.toStringAsFixed(0) : "--";
-
-    return InkWell(
-      onTap: () => Navigator.pushNamed(context, AppRoutes.oxygenSaturationScreen),
-      borderRadius: _cardBorderRadius,
-      child: Card(
-        elevation: _cardElevation, shape: RoundedRectangleBorder(borderRadius: _cardBorderRadius),
-        child: Padding(
-          padding: _cardPadding,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text("BLOOD OXYGEN", style: _cardTitleStyle.copyWith(color: _oxygenIconColor)),
-              const SizedBox(height: 8),
-              Row(children: [const Icon(Icons.bloodtype, color: _oxygenIconColor, size: 50), const SizedBox(width: 12), Expanded(child: RichText(text: TextSpan(text: currentSpo2, style: _oxygenPercentStyle, children: const [TextSpan(text: ' %', style: _unitStyle)])))]),
-              const SizedBox(height: 12),
-              RichText(text: TextSpan(text: '24-Hour Average: ', style: _averageStyle, children: [TextSpan(text: '$averageSpo2 %', style: _averageStyle.copyWith(fontWeight: FontWeight.bold))])),
-              const SizedBox(height: 16),
-              SizedBox(height: 120, child: _buildLineChart(_spo2DataPoints, _oxygenIconColor)),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildPostureAngleDetails(Map<dynamic, dynamic> postureData) {
-    final flexion = postureData['trunkFlexion']?.toDouble() ?? 0.0;
-    final sideBend = postureData['trunkSideBend']?.toDouble() ?? 0.0;
-    final twist = postureData['trunkTwist']?.toDouble() ?? 0.0;
-
-    Widget angleRow(String label, double value) {
-      return Padding(
-        padding: const EdgeInsets.symmetric(vertical: 4.0),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Text(label, style: _subtleTextStyle.copyWith(fontSize: 14)),
-            Text('${value.toStringAsFixed(1)}°', style: _averageStyle.copyWith(fontWeight: FontWeight.bold, fontSize: 14)),
-          ],
-        ),
-      );
-    }
-
-    return Column(
-      children: [
-        angleRow("Trunk Flexion", flexion),
-        angleRow("Side Bend", sideBend),
-        angleRow("Twist", twist),
-      ],
-    );
-  }
-
-  Widget _buildPostureCard() {
-    // Check if the latest data is valid and from today.
-    final bool hasDataForToday = _isDataFromToday(_latestHealthData);
-
-    // If data is available, extract it. The check above ensures _latestHealthData is not null.
-    final postureData = hasDataForToday ? _latestHealthData!['posture'] : null;
-    final String status = postureData?['rulaAssessment'] ?? '...';
-    final int score = postureData?['rulaScore'] ?? 0;
-    final double progress = (score > 0) ? score / 7.0 : 0.0;
-
-    Color progressColor;
-    if (score <= 2) {
-      progressColor = Colors.green;
-    } else if (score <= 4) {
-      progressColor = Colors.yellow.shade700;
-    } else {
-      progressColor = Colors.orange;
-    }
-
-    return InkWell(
-      onTap: () => Navigator.pushNamed(context, AppRoutes.postureScreen),
-      borderRadius: _cardBorderRadius,
-      child: Card(
-        elevation: _cardElevation,
-        shape: RoundedRectangleBorder(borderRadius: _cardBorderRadius),
-        child: Padding(
-          padding: _cardPadding,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text("POSTURE", style: _cardTitleStyle.copyWith(color: _postureIconColor)),
-              const SizedBox(height: 8),
-              if (!hasDataForToday)
-                const Center(
-                    heightFactor: 5,
-                    child: Text("No data recorded today.", style: _subtleTextStyle))
-              else
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        const Icon(Icons.accessibility_new_rounded, color: _postureIconColor, size: 50),
-                        const SizedBox(width: 12),
-                        Expanded(child: Text(status, style: _postureStatusStyle)),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-                    Text("RULA Score: $score", style: _averageStyle.copyWith(fontWeight: FontWeight.bold)),
-                    const SizedBox(height: 8),
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(10),
-                      child: LinearProgressIndicator(
-                        value: progress,
-                        minHeight: 10,
-                        backgroundColor: Colors.grey.shade300,
-                        valueColor: AlwaysStoppedAnimation<Color>(progressColor),
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    Divider(color: Colors.grey.shade200),
-                    const SizedBox(height: 8),
-                    // The 'hasDataForToday' check ensures postureData is not null here.
-                    _buildPostureAngleDetails(postureData!),
-                  ],
-                ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildStressCard() {
-    // Check if the latest data is valid and from today.
-    final bool hasDataForToday = _isDataFromToday(_latestHealthData);
-
-    // If data is available, extract it.
-    final stressData = hasDataForToday ? _latestHealthData!['stress'] : null;
-    final String level = stressData?['stressLevel']?.replaceAll('_', ' ') ?? '...';
-    final int gsrDeviation = stressData?['gsrDeviation']?.toInt() ?? 0;
-
-    // Calculate a percentage based on deviation. Assume a deviation of 50 is "max" for visual purposes.
-    final double percent = (gsrDeviation.abs() / 50.0).clamp(0.0, 1.0);
-
-    Color stressColor;
-    if (level == 'RELAXED') {
-      stressColor = Colors.teal;
-    } else if (level == 'MILD STRESS') {
-      stressColor = Colors.orange.shade600;
-    } else { // HIGH_STRESS or other
-      stressColor = Colors.red.shade700;
-    }
-
-    return InkWell(
-      onTap: () => Navigator.pushNamed(context, AppRoutes.stressLevelScreen),
-      borderRadius: _cardBorderRadius,
-      child: Card(
-        elevation: _cardElevation,
-        shape: RoundedRectangleBorder(borderRadius: _cardBorderRadius),
-        child: Padding(
-          padding: _cardPadding,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text("STRESS", style: _cardTitleStyle.copyWith(color: _stressIconColor)),
-              const SizedBox(height: 8),
-              if (!hasDataForToday)
-                const Center(
-                    heightFactor: 5,
-                    child: Text("No data recorded today.", style: _subtleTextStyle))
-              else
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.center,
-                  children: [
-                    Expanded(
-                      flex: 2,
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(level, style: _stressStatusStyle, softWrap: true,),
-                          const SizedBox(height: 8),
-                          Text("GSR Deviation: $gsrDeviation", style: _averageStyle.copyWith(fontWeight: FontWeight.bold)),
-                        ],
-                      ),
-                    ),
-                    Expanded(
-                      flex: 1,
-                      child: CircularPercentIndicator(
-                        radius: 45.0,
-                        lineWidth: 10.0,
-                        percent: percent,
-                        center: Icon(Icons.bolt, color: stressColor, size: 30),
-                        progressColor: stressColor,
-                        backgroundColor: Colors.grey.shade300,
-                        circularStrokeCap: CircularStrokeCap.round,
-                      ),
-                    ),
-                  ],
-                ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-
+  // --- MODERNIZED UI BUILD METHOD ---
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: _scaffoldBgColor,
+      backgroundColor: AppColors.background,
       appBar: AppBar(
-        title: Text(_isLoading ? 'Loading...' : 'Welcome, ${_userData?['firstName'] ?? 'User'}'),
-        backgroundColor: _scaffoldBgColor,
+        backgroundColor: AppColors.background,
         elevation: 0,
-        foregroundColor: _primaryTextColor,
-        centerTitle: true,
-        automaticallyImplyLeading: false,
+        title: Text('Home Dashboard', style: AppTextStyles.heading),
+        actions: [
+        ],
       ),
-      // Only show a full-screen loader on the very first load when user data is not yet available.
       body: _isLoading && _userData == null
-          ? const Center(child: CircularProgressIndicator(color: _primaryAppColor))
+          ? const Center(child: CircularProgressIndicator(color: AppColors.primaryText))
           : RefreshIndicator(
         onRefresh: _fetchAllData,
-        color: _primaryAppColor,
+        color: AppColors.primaryText,
         child: SingleChildScrollView(
           physics: const AlwaysScrollableScrollPhysics(),
           padding: const EdgeInsets.all(16.0),
           child: _errorMessage.isNotEmpty
               ? Center(child: Text(_errorMessage, style: const TextStyle(color: Colors.red)))
-              : Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _buildUserDetailsCard(),
-              const SizedBox(height: 8),
-              _buildPostureCard(),
-              const SizedBox(height: 16),
-              _buildStressCard(),
-              const SizedBox(height: 16),
-              _buildHeartRateCard(),
-              const SizedBox(height: 16),
-              _buildSpo2Card(),
+              : _buildBentoGrid(),
+        ),
+      ),
+    );
+  }
+
+  // --- MODERNIZED UI WIDGETS ---
+
+  Widget _buildBentoGrid() {
+    return StaggeredGrid.count(
+      crossAxisCount: 2,
+      mainAxisSpacing: 16,
+      crossAxisSpacing: 16,
+      children: [
+        StaggeredGridTile.count(
+          crossAxisCellCount: 2,
+          mainAxisCellCount: 0.9, // Adjusted height
+          child: _buildUserProfileCard(),
+        ),
+        StaggeredGridTile.count(
+          crossAxisCellCount: 1,
+          mainAxisCellCount: 1.3, // Adjusted height
+          child: _buildHeartRateCard(),
+        ),
+        StaggeredGridTile.count(
+          crossAxisCellCount: 1,
+          mainAxisCellCount: 1.3, // Adjusted height
+          child: _buildSpo2Card(),
+        ),
+        StaggeredGridTile.count(
+          crossAxisCellCount: 1,
+          mainAxisCellCount: 1.3, // Adjusted height
+          child: _buildPostureCard(),
+        ),
+        StaggeredGridTile.count(
+          crossAxisCellCount: 1,
+          mainAxisCellCount: 1.3, // Adjusted height
+          child: _buildStressCard(),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildSimpleBarChart(List<HealthDataPoint> data, Color barColor) {
+    if (data.isEmpty) {
+      return Center(child: Text("No chart data.", style: AppTextStyles.secondaryInfo));
+    }
+    final recentData = data.length > 24 ? data.sublist(data.length - 24) : data;
+
+    return BarChart(
+      BarChartData(
+        alignment: BarChartAlignment.spaceAround,
+        titlesData: const FlTitlesData(show: false),
+        gridData: const FlGridData(show: false),
+        borderData: FlBorderData(show: false),
+        barGroups: recentData.asMap().entries.map((entry) {
+          final index = entry.key;
+          final point = entry.value;
+          final value = (point.value as NumericHealthValue).numericValue.toDouble();
+          return BarChartGroupData(
+            x: index,
+            barRods: [
+              BarChartRodData(
+                toY: value,
+                color: barColor,
+                width: 5,
+                borderRadius: const BorderRadius.all(Radius.circular(4)),
+              ),
             ],
+          );
+        }).toList(),
+      ),
+    );
+  }
+
+  // ** MODIFIED WIDGET FOR PROFILE CARD **
+  // This widget now builds its own card structure to have a custom header layout.
+  Widget _buildUserProfileCard() {
+    final String firstName = _userData?['firstName'] ?? 'User';
+    String? photoUrl = _userData?['photoURL'] ?? _user?.photoURL;
+    photoUrl = (photoUrl == null || photoUrl.isEmpty) ? null : photoUrl;
+
+    return GestureDetector(
+      onTap: () {
+        // TODO: Navigate to a detailed profile screen if it exists.
+      },
+      child: Container(
+        padding: const EdgeInsets.all(12.0),
+        decoration: BoxDecoration(
+          color: AppColors.cardBackground,
+          borderRadius: BorderRadius.circular(20),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.05),
+              blurRadius: 10,
+              offset: const Offset(0, 4),
+            )
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Custom header with icon and title in a Row
+            Row(
+              children: [
+                Icon(Icons.person, color: AppColors.profileColor, size: 24),
+                const SizedBox(width: 8),
+                Text(
+                  "Profile",
+                  style: AppTextStyles.cardTitle,
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            // The main content of the profile card
+            Expanded(
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  CircleAvatar(
+                    radius: 28,
+                    backgroundColor: AppColors.profileColor.withOpacity(0.2),
+                    backgroundImage: photoUrl != null ? NetworkImage(photoUrl) : null,
+                    child: photoUrl == null
+                        ? Text(firstName.isNotEmpty ? firstName[0] : 'U',
+                        style: AppTextStyles.heading.copyWith(color: AppColors.profileColor))
+                        : null,
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Text("Hello,", style: AppTextStyles.secondaryInfo),
+                        Text(
+                          firstName,
+                          style: AppTextStyles.cardTitle.copyWith(fontSize: 18),
+                          overflow: TextOverflow.ellipsis,
+                          maxLines: 1,
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildHeartRateCard() {
+    final currentBpm = _heartRateStats?.latest != null
+        ? (_heartRateStats!.latest!.value as NumericHealthValue).numericValue.toStringAsFixed(0)
+        : "--";
+
+    return HealthMetricCard(
+      onTap: () => Navigator.pushNamed(context, AppRoutes.heartRateScreen),
+      title: "Heart rate",
+      icon: Icons.favorite,
+      iconColor: AppColors.heartRateColor,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            child: RichText(
+              text: TextSpan(
+                text: currentBpm,
+                style: AppTextStyles.metricValue.copyWith(color: AppColors.heartRateColor),
+                children: [TextSpan(text: ' BPM', style: AppTextStyles.metricUnit)],
+              ),
+            ),
           ),
+          Text('Just now', style: AppTextStyles.secondaryInfo),
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.only(top: 8.0),
+              child: _buildSimpleBarChart(_heartRateDataPoints, AppColors.heartRateColor),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSpo2Card() {
+    final currentSpo2 = _spo2Stats?.latest != null
+        ? (_spo2Stats!.latest!.value as NumericHealthValue).numericValue.toStringAsFixed(0)
+        : "--";
+
+    return HealthMetricCard(
+      onTap: () => Navigator.pushNamed(context, AppRoutes.oxygenSaturationScreen),
+      title: "Blood oxygen",
+      icon: Icons.bloodtype,
+      iconColor: AppColors.oxygenColor,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            child: RichText(
+              text: TextSpan(
+                text: currentSpo2,
+                style: AppTextStyles.metricValue.copyWith(color: AppColors.oxygenColor),
+                children: [TextSpan(text: ' %', style: AppTextStyles.metricUnit)],
+              ),
+            ),
+          ),
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.only(top: 8.0),
+              child: _buildSimpleBarChart(_spo2DataPoints, AppColors.oxygenColor),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPostureCard() {
+    final bool hasDataForToday = _isDataFromToday(_latestHealthData);
+    final postureData = hasDataForToday ? _latestHealthData!['posture'] : null;
+    final String status = postureData?['rulaAssessment']?.replaceAll('_', ' ') ?? '...';
+
+    return HealthMetricCard(
+      onTap: () => Navigator.pushNamed(context, AppRoutes.postureScreen),
+      title: "Posture",
+      icon: Icons.accessibility_new,
+      iconColor: AppColors.postureColor,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            hasDataForToday ? status : 'No data',
+            style: AppTextStyles.metricValue.copyWith(color: AppColors.postureColor, fontSize: 24),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+          Text('Live', style: AppTextStyles.secondaryInfo),
+          const Spacer(),
+          Center(
+            child: Icon(Icons.align_vertical_bottom, size: 50, color: AppColors.postureColor.withOpacity(0.2)),
+          ),
+          const Spacer(),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStressCard() {
+    final bool hasDataForToday = _isDataFromToday(_latestHealthData);
+    final stressData = hasDataForToday ? _latestHealthData!['stress'] : null;
+    final String level = stressData?['stressLevel']?.replaceAll('_', ' ') ?? '...';
+
+    return HealthMetricCard(
+      onTap: () => Navigator.pushNamed(context, AppRoutes.stressLevelScreen),
+      title: "Stress",
+      icon: Icons.bolt,
+      iconColor: AppColors.stressColor,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            hasDataForToday ? level : 'No data',
+            style: AppTextStyles.metricValue.copyWith(color: AppColors.stressColor, fontSize: 24),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+          const Spacer(),
+          Center(
+            child: Icon(Icons.psychology, size: 50, color: AppColors.stressColor.withOpacity(0.2)),
+          ),
+          const Spacer(),
+        ],
+      ),
+    );
+  }
+}
+
+// --- [2] REUSABLE HEALTH METRIC CARD WIDGET ---
+// This widget creates the clean, rounded card style seen in the reference image.
+class HealthMetricCard extends StatelessWidget {
+  final Widget child;
+  final String title;
+  final IconData icon;
+  final Color iconColor;
+  final VoidCallback? onTap;
+
+  const HealthMetricCard({
+    super.key,
+    required this.child,
+    required this.title,
+    required this.icon,
+    required this.iconColor,
+    this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.all(12.0),
+        decoration: BoxDecoration(
+          color: AppColors.cardBackground,
+          borderRadius: BorderRadius.circular(20),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.05),
+              blurRadius: 10,
+              offset: const Offset(0, 4),
+            )
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(icon, color: iconColor, size: 24),
+                const SizedBox(height: 4),
+                Text(
+                  title,
+                  style: AppTextStyles.cardTitle,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Expanded(child: child),
+          ],
         ),
       ),
     );

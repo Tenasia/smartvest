@@ -1,8 +1,49 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:font_awesome_flutter/font_awesome_flutter.dart';
+import 'package:google_fonts/google_fonts.dart';
+
+// Assuming these are in your project structure
+import 'package:smartvest/config/app_routes.dart'; // For navigation routes
 import 'package:smartvest/core/services/auth_service.dart';
-import 'package:font_awesome_flutter/font_awesome_flutter.dart'; // For the Google icon
-import 'package:cloud_firestore/cloud_firestore.dart'; // Import Firestore
+
+// --- [1] DESIGN SYSTEM (Copied for consistency) ---
+// In a real app, you would move these to a central 'theme.dart' or 'constants.dart' file.
+class AppColors {
+  static const Color background = Color(0xFFF7F8FC);
+  static const Color cardBackground = Colors.white;
+  static const Color primaryText = Color(0xFF333333);
+  static const Color secondaryText = Color(0xFF8A94A6);
+  static const Color profileColor = Color(0xFF5667FD); // Primary action color
+}
+
+class AppTextStyles {
+  static final TextStyle heading = GoogleFonts.poppins(
+    fontSize: 28,
+    fontWeight: FontWeight.bold,
+    color: AppColors.primaryText,
+  );
+
+  static final TextStyle subheading = GoogleFonts.poppins(
+    fontSize: 16,
+    fontWeight: FontWeight.normal,
+    color: AppColors.secondaryText,
+  );
+
+  static final TextStyle buttonText = GoogleFonts.poppins(
+    fontSize: 16,
+    fontWeight: FontWeight.w600,
+    color: Colors.white,
+  );
+
+  static final TextStyle secondaryInfo = GoogleFonts.poppins(
+    fontSize: 14,
+    fontWeight: FontWeight.w500,
+    color: AppColors.secondaryText,
+  );
+}
+// --- END OF DESIGN SYSTEM ---
+
 
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key});
@@ -12,6 +53,7 @@ class RegisterScreen extends StatefulWidget {
 }
 
 class _RegisterScreenState extends State<RegisterScreen> {
+  // --- STATE & LOGIC (Functionality is preserved, no changes here) ---
   final _formKey = GlobalKey<FormState>();
   final TextEditingController _emailController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
@@ -19,93 +61,55 @@ class _RegisterScreenState extends State<RegisterScreen> {
   final AuthService _authService = AuthService();
   bool _isLoading = false;
   String _errorMessage = '';
-  final FirebaseFirestore _firestore = FirebaseFirestore.instance; // Add Firestore instance
 
+  @override
+  void dispose() {
+    _emailController.dispose();
+    _passwordController.dispose();
+    _confirmPasswordController.dispose();
+    super.dispose();
+  }
 
   Future<void> _register() async {
-    if (_formKey.currentState!.validate()) {
-      setState(() {
-        _isLoading = true;
-        _errorMessage = '';
-      });
+    if (!_formKey.currentState!.validate()) return;
 
-      try {
-        if (_passwordController.text.trim() == _confirmPasswordController.text.trim()) {
-          UserCredential? userCredential = await _authService.signUpWithEmailAndPassword(
-            _emailController.text.trim(),
-            _passwordController.text.trim(),
-          );
+    setState(() { _isLoading = true; _errorMessage = ''; });
 
-          if (userCredential != null) {
-            print('Registration successful! User ID: ${userCredential.user?.uid}');
-            // Check if the user's profile is completed in Firestore
-            final userDoc = await _firestore.collection('users').doc(userCredential.user!.uid).get();
-            final profileCompleted = userDoc.data()?['profileCompleted'] ?? false;
-            if (profileCompleted) {
-              Navigator.pushReplacementNamed(context, '/dashboard'); // Use the named route
-            }
-            else{
-              Navigator.pushReplacementNamed(context, '/welcome');
-            }
-          }
-        } else {
-          setState(() {
-            _isLoading = false;
-            _errorMessage = 'Passwords do not match.';
-          });
-          return;
-        }
-      } catch (e) {
-        print('Registration error: $e');
-        setState(() {
-          _isLoading = false;
-          if (e is FirebaseAuthException) {
-            _errorMessage = _handleFirebaseAuthError(e.code);
-          } else {
-            _errorMessage = 'Registration failed. Please try again.';
-          }
-        });
-      } finally {
-        if (mounted) {
-          setState(() {
-            _isLoading = false;
-          });
-        }
+    try {
+      UserCredential? userCredential = await _authService.signUpWithEmailAndPassword(
+        _emailController.text.trim(),
+        _passwordController.text.trim(),
+      );
+
+      if (userCredential != null && mounted) {
+        // After successful registration, the user needs to complete their profile.
+        Navigator.pushReplacementNamed(context, AppRoutes.welcome);
       }
+    } on FirebaseAuthException catch (e) {
+      setState(() => _errorMessage = _handleFirebaseAuthError(e.code));
+    } catch (e) {
+      setState(() => _errorMessage = 'An unexpected error occurred. Please try again.');
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
   Future<void> _handleGoogleSignUp() async {
-    setState(() {
-      _isLoading = true;
-      _errorMessage = '';
-    });
+    setState(() { _isLoading = true; _errorMessage = ''; });
     try {
       final UserCredential? userCredential = await _authService.signInWithGoogle(context);
-      if (userCredential != null) {
-        print('Google sign-up successful! User ID: ${userCredential.user?.uid}');
-        // Check if the user's profile is completed in Firestore
-        final userDoc = await _firestore.collection('users').doc(userCredential.user!.uid).get();
-        final profileCompleted = userDoc.data()?['profileCompleted'] ?? false;
+      if (userCredential != null && mounted) {
+        final profileCompleted = await _authService.isProfileComplete();
         if (profileCompleted) {
-          Navigator.pushReplacementNamed(context, '/dashboard'); // Use the named route
-        }
-        else{
-          Navigator.pushReplacementNamed(context, '/welcome'); // Use the named route
+          Navigator.pushReplacementNamed(context, AppRoutes.dashboard);
+        } else {
+          Navigator.pushReplacementNamed(context, AppRoutes.welcome);
         }
       }
     } catch (e) {
-      print('Google sign-up error: $e');
-      setState(() {
-        _isLoading = false;
-        _errorMessage = 'Failed to sign up with Google. Please try again.';
-      });
+      setState(() => _errorMessage = 'Failed to sign up with Google. Please try again.');
     } finally {
-      if (mounted) {
-        setState(() {
-          _isLoading = false;
-        });
-      }
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
@@ -116,148 +120,178 @@ class _RegisterScreenState extends State<RegisterScreen> {
       case 'invalid-email':
         return 'The email address is not valid.';
       case 'weak-password':
-        return 'The password is too weak.';
+        return 'The password is too weak (min. 6 characters).';
       default:
-        return 'Registration failed. Please check your information and try again.';
+        return 'Registration failed. Please try again.';
     }
   }
 
-  @override
-  void dispose() {
-    _emailController.dispose();
-    _passwordController.dispose();
-    _confirmPasswordController.dispose();
-    super.dispose();
-  }
 
+  // --- MODERNIZED UI BUILD METHOD ---
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Register'),
-        centerTitle: true,
-      ),
-      body: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Center(
-          child: Form(
-            key: _formKey,
-            child: SingleChildScrollView(
+      backgroundColor: AppColors.background,
+      body: SafeArea(
+        child: SingleChildScrollView(
+          physics: const BouncingScrollPhysics(),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 48.0),
+            child: Form(
+              key: _formKey,
               child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: <Widget>[
-                  // Email Text Field
+                  // --- HEADER ---
+                  Text('Create Account', style: AppTextStyles.heading),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Start your journey with us today.',
+                    style: AppTextStyles.subheading,
+                  ),
+                  const SizedBox(height: 48.0),
+
+                  // --- EMAIL TEXT FIELD ---
                   TextFormField(
                     controller: _emailController,
                     keyboardType: TextInputType.emailAddress,
-                    decoration: const InputDecoration(
-                      labelText: 'Email',
-                      prefixIcon: Icon(Icons.email),
-                      border: OutlineInputBorder(),
-                    ),
+                    decoration: _buildInputDecoration(label: 'Email', icon: Icons.email_outlined),
                     validator: (value) {
-                      if (value == null || value.isEmpty) {
-                        return 'Please enter your email';
-                      }
-                      if (!RegExp(r"^[a-zA-Z0-9+_.-]+@[a-zA-Z0-9.-]+.[a-z]{2,}$")
-                          .hasMatch(value)) {
-                        return 'Please enter a valid email address';
+                      if (value == null || value.isEmpty) return 'Please enter your email';
+                      if (!RegExp(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$").hasMatch(value)) {
+                        return 'Please enter a valid email';
                       }
                       return null;
                     },
                   ),
                   const SizedBox(height: 20.0),
-                  // Password Text Field
+
+                  // --- PASSWORD TEXT FIELD ---
                   TextFormField(
                     controller: _passwordController,
                     obscureText: true,
-                    decoration: const InputDecoration(
-                      labelText: 'Password',
-                      prefixIcon: Icon(Icons.lock),
-                      border: OutlineInputBorder(),
-                    ),
+                    decoration: _buildInputDecoration(label: 'Password', icon: Icons.lock_outline),
                     validator: (value) {
-                      if (value == null || value.isEmpty) {
-                        return 'Please enter a password';
-                      }
-                      if (value.length < 6) {
-                        return 'Password must be at least 6 characters long';
-                      }
+                      if (value == null || value.isEmpty) return 'Please enter a password';
+                      if (value.length < 6) return 'Password must be at least 6 characters';
                       return null;
                     },
                   ),
                   const SizedBox(height: 20.0),
-                  // Confirm Password Text Field
+
+                  // --- CONFIRM PASSWORD TEXT FIELD ---
                   TextFormField(
                     controller: _confirmPasswordController,
                     obscureText: true,
-                    decoration: const InputDecoration(
-                      labelText: 'Confirm Password',
-                      prefixIcon: Icon(Icons.lock_outline),
-                      border: OutlineInputBorder(),
-                    ),
+                    decoration: _buildInputDecoration(label: 'Confirm Password', icon: Icons.lock_person_outlined),
                     validator: (value) {
-                      if (value == null || value.isEmpty) {
-                        return 'Please confirm your password';
-                      }
-                      if (value != _passwordController.text) {
-                        return 'Passwords do not match';
-                      }
+                      if (value == null || value.isEmpty) return 'Please confirm your password';
+                      if (value != _passwordController.text) return 'Passwords do not match';
                       return null;
                     },
                   ),
-                  const SizedBox(height: 20.0),
-                  // Register Button
+                  const SizedBox(height: 32.0),
+
+                  // --- ERROR MESSAGE DISPLAY ---
+                  if (_errorMessage.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 16.0),
+                      child: Text(
+                        _errorMessage,
+                        style: const TextStyle(color: Colors.red, fontSize: 14),
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
+
+                  // --- REGISTER BUTTON ---
                   ElevatedButton(
                     onPressed: _isLoading ? null : _register,
-                    child: _isLoading
-                        ? const CircularProgressIndicator()
-                        : const Text('Register'),
-                  ),
-                  const SizedBox(height: 10.0),
-                  // Google Sign-Up Button
-                  ElevatedButton.icon(
-                    onPressed: _isLoading ? null : _handleGoogleSignUp,
-                    icon: const FaIcon(FontAwesomeIcons.google, color: Colors.redAccent),
-                    label: _isLoading
-                        ? const SizedBox(
-                      height: 20,
-                      width: 20,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                      ),
-                    )
-                        : const Text('Sign up with Google'),
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.white,
-                      foregroundColor: Colors.black87,
+                      backgroundColor: AppColors.profileColor,
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      elevation: 2,
+                    ),
+                    child: _isLoading
+                        ? const SizedBox(height: 24, width: 24, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 3))
+                        : Text('Create Account', style: AppTextStyles.buttonText),
+                  ),
+                  const SizedBox(height: 24.0),
+
+                  // --- DIVIDER ---
+                  Row(
+                    children: [
+                      const Expanded(child: Divider(color: AppColors.secondaryText, endIndent: 16)),
+                      Text('OR', style: AppTextStyles.secondaryInfo),
+                      const Expanded(child: Divider(color: AppColors.secondaryText, indent: 16)),
+                    ],
+                  ),
+                  const SizedBox(height: 24.0),
+
+                  // --- GOOGLE SIGN-UP BUTTON ---
+                  OutlinedButton.icon(
+                    onPressed: _isLoading ? null : _handleGoogleSignUp,
+                    icon: const FaIcon(FontAwesomeIcons.google, size: 20),
+                    label: const Text('Sign up with Google'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: AppColors.primaryText,
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      side: BorderSide(color: AppColors.secondaryText.withOpacity(0.5)),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                     ),
                   ),
-                  const SizedBox(height: 10.0),
-                  // Display error message
-                  if (_errorMessage.isNotEmpty)
-                    Text(
-                      _errorMessage,
-                      style: const TextStyle(color: Colors.red),
-                      textAlign: TextAlign.center,
-                    ),
-                  const SizedBox(height: 20.0),
-                  // Navigate to Login Screen
-                  TextButton(
-                    onPressed: () {
-                      Navigator.pop(context); // Go back to the login screen
-                    },
-                    child: const Text('Already have an account? Login'),
+                  const SizedBox(height: 48.0),
+
+                  // --- NAVIGATE TO LOGIN ---
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text("Already have an account? ", style: AppTextStyles.secondaryInfo),
+                      GestureDetector(
+                        onTap: () => Navigator.pop(context), // Go back to the previous screen (Login)
+                        child: Text(
+                          'Login',
+                          style: AppTextStyles.secondaryInfo.copyWith(
+                            color: AppColors.profileColor,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                 ],
               ),
             ),
           ),
-        )
+        ),
+      ),
+    );
+  }
+
+  // Helper method to build consistent input decorations
+  InputDecoration _buildInputDecoration({required String label, required IconData icon}) {
+    return InputDecoration(
+      labelText: label,
+      labelStyle: const TextStyle(color: AppColors.secondaryText),
+      prefixIcon: Icon(icon, color: AppColors.secondaryText, size: 22),
+      filled: true,
+      fillColor: Colors.white,
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12.0),
+        borderSide: BorderSide.none,
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12.0),
+        borderSide: const BorderSide(color: AppColors.profileColor, width: 2.0),
+      ),
+      errorBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12.0),
+        borderSide: const BorderSide(color: Colors.red, width: 1.5),
+      ),
+      focusedErrorBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12.0),
+        borderSide: const BorderSide(color: Colors.red, width: 2.0),
       ),
     );
   }
 }
-

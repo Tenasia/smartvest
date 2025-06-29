@@ -1,686 +1,420 @@
-// smartvest/lib/features/home.dart
 import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
-import 'package:smartvest/config/app_routes.dart'; // Ensure AppRoutes is imported
+import 'package:health/health.dart';
+import 'package:smartvest/core/services/health_service.dart';
+import 'package:table_calendar/table_calendar.dart';
+import 'package:intl/intl.dart';
+import 'package:firebase_database/firebase_database.dart';
+import 'dart:async';
+import 'package:google_fonts/google_fonts.dart'; // Import Google Fonts
+import 'package:glass_kit/glass_kit.dart'; // Corrected import for the glass effect
 
-// Style Constants
-const Color _scaffoldBgColor = Color(0xFFF5F5F5);
-const Color _dashboardContentBgColor = Colors.white;
-const double _dashboardCornerRadius = 50.0;
+// --- Design System (Copied from home.dart for consistency) ---
 
-const Color _cardBgColor = Colors.white;
-
-const Color _primaryAppColor = Color(0xFF4A79FF);
-const Color _primaryTextColor = Color(0xFF333333);
-const Color _secondaryTextColor = Color(0xFF757575);
-const Color _statusGoodColor = Color(0xFF27AE60);
-const Color _statusAverageColor = Color(0xFF007AFF);
-const Color _statusExcellentColor = Color(0xFF00A099);
-const Color _statusLowColorGeneral = Color(0xFF56CCF2);
-
-const Color _heartIconColor = Color(0xFFF25C54);
-const Color _heartRateValueColor = Color(0xFF333333);
-const Color _heartRateAverageTextColor = Color(0xFF666666);
-
-const Color _hrvStatusVeryLowColor = Color(0xFFF25C54);
-const Color _stressIconColor = Color(0xFFFFA000);
-const Color _stressValueColor = Color(0xFF333333);
-
-const Color _deviceBatteryGoodColor = Color(0xFF27AE60);
-const Color _deviceTitleIconColor = _primaryAppColor;
-
-final BorderRadius _cardBorderRadius = BorderRadius.circular(12.0);
-const EdgeInsets _cardPadding = EdgeInsets.all(16.0);
-const double _cardElevation = 1.5;
-
-const TextStyle _cardTitleStyle = TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: _secondaryTextColor);
-const TextStyle _statValueStyle = TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: _primaryTextColor);
-const TextStyle _statLabelStyle = TextStyle(fontSize: 12, color: _secondaryTextColor);
-const TextStyle _mainValueLargeStyle = TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: _primaryTextColor);
-const TextStyle _mainValueSmallStyle = TextStyle(fontSize: 14, color: _primaryTextColor);
-const TextStyle _subtleTextStyle = TextStyle(fontSize: 12, color: _secondaryTextColor);
-
-const TextStyle _postureStatusLabelStyle = TextStyle(fontSize: 14, color: _secondaryTextColor);
-const TextStyle _postureStatusValueStyle = TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: _statusAverageColor);
-const TextStyle _postureAngleLabelStyle = TextStyle(fontSize: 14, color: _secondaryTextColor);
-const TextStyle _postureAngleValueStyle = TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: _primaryTextColor);
-const TextStyle _postureCircularPercentageStyle = TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: _statusAverageColor);
-
-const TextStyle _heartRateBPMStyle = TextStyle(fontSize: 32, fontWeight: FontWeight.bold, color: _heartRateValueColor);
-const TextStyle _heartRateUnitStyle = TextStyle(fontSize: 16, fontWeight: FontWeight.normal, color: _secondaryTextColor);
-const TextStyle _heartRateAverageStyle = TextStyle(fontSize: 13, color: _heartRateAverageTextColor);
-const TextStyle _chartAxisLabelStyle = TextStyle(fontSize: 10, color: _secondaryTextColor);
-
-const TextStyle _hrvCardTitleStyle = TextStyle(fontSize: 17, fontWeight: FontWeight.bold, color: _primaryTextColor);
-const TextStyle _hrvStatusTextStyle = TextStyle(fontSize: 13, fontWeight: FontWeight.normal, color: _hrvStatusVeryLowColor);
-const TextStyle _hrvValueStyle = TextStyle(fontSize: 32, fontWeight: FontWeight.bold, color: _hrvStatusVeryLowColor);
-const TextStyle _hrvUnitStyle = TextStyle(fontSize: 16, fontWeight: FontWeight.normal, color: _hrvStatusVeryLowColor);
-const TextStyle _hrvDescriptionStyle = TextStyle(fontSize: 12, color: _secondaryTextColor, height: 1.3);
-
-const TextStyle _stressCardTitleStyle = TextStyle(fontSize: 17, fontWeight: FontWeight.bold, color: _primaryTextColor);
-const TextStyle _stressValueStyle = TextStyle(fontSize: 32, fontWeight: FontWeight.bold, color: _stressValueColor);
-const TextStyle _stressDescriptionStyle = TextStyle(fontSize: 12, color: _secondaryTextColor, height: 1.3);
-
-const TextStyle _deviceCardTitleStyle = TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: _primaryTextColor);
-const TextStyle _deviceStatusLabelStyle = TextStyle(fontSize: 13, color: _secondaryTextColor);
-const TextStyle _deviceBatteryPercentageStyle = TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: _primaryTextColor);
-
-
-class HomeScreen extends StatefulWidget {
-  const HomeScreen({super.key});
-
-  @override
-  State<HomeScreen> createState() => _HomeScreenState();
+class AppColors {
+  static const Color background = Color(0xFFF7F8FC);
+  static const Color cardBackground = Colors.white;
+  static const Color primaryText = Color(0xFF333333);
+  static const Color secondaryText = Color(0xFF8A94A6);
+  static const Color heartRateColor = Color(0xFFF25C54);
+  static const Color oxygenColor = Color(0xFF27AE60);
+  static const Color postureColor = Color(0xFF2F80ED);
+  static const Color stressColor = Color(0xFFF2C94C);
+  static const Color profileColor = Color(0xFF5667FD);
 }
 
-class _HomeScreenState extends State<HomeScreen> {
-  final FirebaseAuth _auth = FirebaseAuth.instance;
-  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
-  User? _user;
-  Map<String, dynamic>? _userData;
-  bool _isLoading = true;
+class AppTextStyles {
+  static final TextStyle heading = GoogleFonts.poppins(
+    fontSize: 24,
+    fontWeight: FontWeight.bold,
+    color: AppColors.primaryText,
+  );
+  static final TextStyle cardTitle = GoogleFonts.poppins(
+    fontSize: 16,
+    fontWeight: FontWeight.w600,
+    color: AppColors.primaryText,
+  );
+  static final TextStyle metricValue = GoogleFonts.poppins(
+    fontSize: 28,
+    fontWeight: FontWeight.bold,
+    color: AppColors.primaryText,
+  );
+  static final TextStyle metricUnit = GoogleFonts.poppins(
+    fontSize: 14,
+    fontWeight: FontWeight.w500,
+    color: AppColors.secondaryText,
+  );
+  static final TextStyle secondaryInfo = GoogleFonts.poppins(
+    fontSize: 12,
+    fontWeight: FontWeight.normal,
+    color: AppColors.secondaryText,
+  );
+  static final TextStyle body = GoogleFonts.poppins(
+    fontSize: 14,
+    color: AppColors.primaryText.withOpacity(0.7),
+  );
+}
+
+
+// --- Data Models (can be moved to a separate models file later) ---
+
+class PostureStats {
+  final double? minRulaScore;
+  final double? maxRulaScore;
+  final double? avgRulaScore;
+  PostureStats({this.minRulaScore, this.maxRulaScore, this.avgRulaScore});
+}
+
+class StressStats {
+  final double? minGsr;
+  final double? maxGsr;
+  final double? avgGsr;
+  StressStats({this.minGsr, this.maxGsr, this.avgGsr});
+}
+
+class DailyHealthSummary {
+  final HealthStats heartRateStats;
+  final HealthStats spo2Stats;
+  final PostureStats postureStats;
+  final StressStats stressStats;
+
+  DailyHealthSummary({
+    required this.heartRateStats,
+    required this.spo2Stats,
+    required this.postureStats,
+    required this.stressStats,
+  });
+}
+
+// --- Main Widget ---
+
+class CalendarScreen extends StatefulWidget {
+  const CalendarScreen({super.key});
+
+  @override
+  State<CalendarScreen> createState() => _CalendarScreenState();
+}
+
+class _CalendarScreenState extends State<CalendarScreen> {
+  final HealthService _healthService = HealthService();
+  final DatabaseReference _databaseReference = FirebaseDatabase.instance.ref('healthMonitor/data');
+
+  CalendarFormat _calendarFormat = CalendarFormat.month;
+  DateTime _focusedDay = DateTime.now();
+  DateTime? _selectedDay;
+
+  DailyHealthSummary? _dailySummary;
+  bool _isLoading = false;
+  String? _errorMessage;
 
   @override
   void initState() {
     super.initState();
-    _fetchUserData();
+    _selectedDay = _focusedDay;
+    _fetchDataForDay(_selectedDay!);
   }
 
-  Future<void> _fetchUserData() async {
+  // --- Data Fetching Logic (Retained) ---
+
+  Future<void> _fetchDataForDay(DateTime day) async {
     if (!mounted) return;
-    setState(() { _isLoading = true; });
-    _user = _auth.currentUser;
-    if (_user != null) {
-      try {
-        final DocumentSnapshot<Map<String, dynamic>> snapshot =
-        await _firestore.collection('users').doc(_user!.uid).get();
-        if (mounted && snapshot.exists) {
-          setState(() { _userData = snapshot.data(); });
-        }
-      } catch (e) {
-        print("Error fetching user data: $e");
-      } finally {
-        if (mounted) { setState(() { _isLoading = false; }); }
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+      _dailySummary = null;
+    });
+
+    try {
+      final postureAndStress = await _getPostureAndStressDataForDay(day);
+      final heartRate = await _healthService.getStatsForToday(HealthDataType.HEART_RATE);
+      final spo2 = await _healthService.getStatsForToday(HealthDataType.BLOOD_OXYGEN);
+
+      if (mounted) {
+        setState(() {
+          _dailySummary = DailyHealthSummary(
+            heartRateStats: heartRate,
+            spo2Stats: spo2,
+            postureStats: postureAndStress.item1,
+            stressStats: postureAndStress.item2,
+          );
+        });
       }
-    } else {
-      if (mounted) { setState(() { _isLoading = false; }); }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _errorMessage = "Failed to load data for this day.";
+        });
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
     }
   }
 
-  int? _calculateAge(Timestamp? birthdayTimestamp) {
-    if (birthdayTimestamp == null) return null;
-    DateTime birthday = birthdayTimestamp.toDate();
-    DateTime today = DateTime.now();
-    int age = today.year - birthday.year;
-    if (today.month < birthday.month ||
-        (today.month == birthday.month && today.day < birthday.day)) {
-      age--;
-    }
-    return age;
-  }
+  Future<Tuple2<PostureStats, StressStats>> _getPostureAndStressDataForDay(DateTime day) async {
+    final startOfDay = DateTime(day.year, day.month, day.day).millisecondsSinceEpoch ~/ 1000;
+    final endOfDay = DateTime(day.year, day.month, day.day, 23, 59, 59).millisecondsSinceEpoch ~/ 1000;
 
-  Widget _buildInfoStatItem(String value, String label) {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.center,
-      children: [
-        Text(value, style: _statValueStyle, textAlign: TextAlign.center),
-        const SizedBox(height: 2),
-        Text(label, style: _statLabelStyle, textAlign: TextAlign.center),
-      ],
+    final event = await _databaseReference
+        .orderByKey()
+        .startAt(startOfDay.toString())
+        .endAt(endOfDay.toString())
+        .once();
+
+    if (!event.snapshot.exists) {
+      return Tuple2(PostureStats(), StressStats());
+    }
+
+    final data = event.snapshot.value as Map<dynamic, dynamic>;
+    final rulaScores = <double>[];
+    final gsrValues = <double>[];
+
+    data.forEach((key, value) {
+      if (value['posture'] != null && value['posture']['rulaScore'] != null) {
+        rulaScores.add((value['posture']['rulaScore'] as num).toDouble());
+      }
+      if (value['stress'] != null && value['stress']['gsrDeviation'] != null) {
+        gsrValues.add((value['stress']['gsrDeviation'] as num).toDouble());
+      }
+    });
+
+    return Tuple2(
+      _calculatePostureStats(rulaScores),
+      _calculateStressStats(gsrValues),
     );
   }
 
-  Widget _buildUserDetailsCard() {
-    final String firstName = _userData?['firstName'] ?? 'User';
-    final String location = "Manila, Philippines";
-    String? photoUrl = _userData?['photoURL'] ?? _user?.photoURL;
-    photoUrl = (photoUrl == null || photoUrl.isEmpty) ? "https://via.placeholder.com/100/${_primaryAppColor.value.toRadixString(16).substring(2)}/FFFFFF?Text=${firstName.isNotEmpty ? firstName[0].toUpperCase() : 'U'}" : photoUrl;
+  PostureStats _calculatePostureStats(List<double> scores) {
+    if (scores.isEmpty) return PostureStats();
+    return PostureStats(
+      minRulaScore: scores.reduce((a, b) => a < b ? a : b),
+      maxRulaScore: scores.reduce((a, b) => a > b ? a : b),
+      avgRulaScore: scores.reduce((a, b) => a + b) / scores.length,
+    );
+  }
 
+  StressStats _calculateStressStats(List<double> values) {
+    if (values.isEmpty) return StressStats();
+    return StressStats(
+      minGsr: values.reduce((a, b) => a < b ? a : b),
+      maxGsr: values.reduce((a, b) => a > b ? a : b),
+      avgGsr: values.reduce((a, b) => a + b) / values.length,
+    );
+  }
 
-    final Timestamp? birthdayTimestamp = _userData?['birthday'] as Timestamp?;
-    final int? age = _calculateAge(birthdayTimestamp);
-    final int? heightCm = _userData?['heightCm'] as int?;
-    final double? weightKg = _userData?['weightKg'] as double?;
+  // --- UI Build Method (Modernized) ---
 
-    return Card(
-      elevation: _cardElevation,
-      shape: RoundedRectangleBorder(borderRadius: _cardBorderRadius),
-      color: _cardBgColor,
-      margin: const EdgeInsets.only(bottom: 16.0),
-      child: Padding(
-        padding: _cardPadding,
-        child: Column(
-          children: [
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: AppColors.background,
+      appBar: AppBar(
+        title: Text('Health Calendar', style: AppTextStyles.heading),
+        backgroundColor: AppColors.background,
+        elevation: 0,
+        iconTheme: const IconThemeData(color: AppColors.primaryText),
+      ),
+      body: Column(
+        children: [
+          _buildCalendar(),
+          Expanded(
+            child: _buildSummarySection(),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // --- Modernized Widgets ---
+
+  Widget _buildCalendar() {
+    return Padding(
+      padding: const EdgeInsets.all(16.0),
+      // ** Using GlassContainer from glass_kit package **
+      child: GlassContainer.clearGlass(
+        height: 400, // Provide a height for the container
+        borderRadius: BorderRadius.circular(20),
+        borderColor: Colors.white.withOpacity(0.2),
+        blur: 15,
+        child: Padding(
+          padding: const EdgeInsets.all(8.0), // Add internal padding
+          child: TableCalendar(
+            firstDay: DateTime.utc(2020, 1, 1),
+            lastDay: DateTime.utc(2030, 12, 31),
+            focusedDay: _focusedDay,
+            calendarFormat: _calendarFormat,
+            selectedDayPredicate: (day) => isSameDay(_selectedDay, day),
+            onDaySelected: (selectedDay, focusedDay) {
+              if (!isSameDay(_selectedDay, selectedDay)) {
+                setState(() {
+                  _selectedDay = selectedDay;
+                  _focusedDay = focusedDay;
+                });
+                _fetchDataForDay(selectedDay);
+              }
+            },
+            onFormatChanged: (format) {
+              if (_calendarFormat != format) {
+                setState(() {
+                  _calendarFormat = format;
+                });
+              }
+            },
+            onPageChanged: (focusedDay) {
+              _focusedDay = focusedDay;
+            },
+            headerStyle: HeaderStyle(
+              titleCentered: true,
+              formatButtonVisible: false,
+              titleTextStyle: AppTextStyles.cardTitle.copyWith(fontSize: 18),
+              leftChevronIcon: const Icon(Icons.chevron_left, color: AppColors.primaryText),
+              rightChevronIcon: const Icon(Icons.chevron_right, color: AppColors.primaryText),
+            ),
+            calendarStyle: CalendarStyle(
+              defaultTextStyle: AppTextStyles.body,
+              weekendTextStyle: AppTextStyles.body.copyWith(color: AppColors.primaryText.withOpacity(0.6)),
+              todayDecoration: BoxDecoration(
+                color: AppColors.profileColor.withOpacity(0.3),
+                shape: BoxShape.circle,
+              ),
+              selectedDecoration: const BoxDecoration(
+                color: AppColors.profileColor,
+                shape: BoxShape.circle,
+              ),
+              selectedTextStyle: AppTextStyles.body.copyWith(color: Colors.white, fontWeight: FontWeight.bold),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSummarySection() {
+    return AnimatedSwitcher(
+      duration: const Duration(milliseconds: 300),
+      child: _isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : _errorMessage != null
+          ? Center(child: Text(_errorMessage!, style: AppTextStyles.body))
+          : _dailySummary != null
+          ? _buildSummaryCard(_dailySummary!)
+          : Center(child: Text("No health data recorded for this day.", style: AppTextStyles.body)),
+    );
+  }
+
+  Widget _buildSummaryCard(DailyHealthSummary summary) {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+      // ** Using GlassContainer from glass_kit package **
+      child: GlassContainer.clearGlass(
+        borderRadius: BorderRadius.circular(20),
+        borderColor: Colors.white.withOpacity(0.2),
+        blur: 15,
+        child: Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Summary for ${DateFormat.yMMMd().format(_selectedDay!)}',
+                style: AppTextStyles.cardTitle,
+              ),
+              const SizedBox(height: 16),
+              GridView.count(
+                crossAxisCount: 2,
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                crossAxisSpacing: 12,
+                mainAxisSpacing: 12,
+                childAspectRatio: 1.5,
+                children: [
+                  _buildSummaryMetric(
+                    icon: Icons.favorite,
+                    color: AppColors.heartRateColor,
+                    label: "Avg. Heart Rate",
+                    value: summary.heartRateStats.avg?.toStringAsFixed(0) ?? 'N/A',
+                    unit: "BPM",
+                  ),
+                  _buildSummaryMetric(
+                    icon: Icons.bloodtype,
+                    color: AppColors.oxygenColor,
+                    label: "Avg. SpO2",
+                    value: summary.spo2Stats.avg?.toStringAsFixed(0) ?? 'N/A',
+                    unit: "%",
+                  ),
+                  _buildSummaryMetric(
+                    icon: Icons.accessibility_new,
+                    color: AppColors.postureColor,
+                    label: "Avg. RULA Score",
+                    value: summary.postureStats.avgRulaScore?.toStringAsFixed(1) ?? 'N/A',
+                    unit: "",
+                  ),
+                  _buildSummaryMetric(
+                    icon: Icons.bolt,
+                    color: AppColors.stressColor,
+                    label: "Avg. GSR Dev.",
+                    value: summary.stressStats.avgGsr?.toStringAsFixed(0) ?? 'N/A',
+                    unit: "",
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSummaryMetric({
+    required IconData icon,
+    required Color color,
+    required String label,
+    required String value,
+    required String unit,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Icon(icon, color: color, size: 24),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(label, style: AppTextStyles.secondaryInfo.copyWith(color: color)),
+              FittedBox(
+                fit: BoxFit.scaleDown,
+                child: RichText(
+                  text: TextSpan(
+                    text: value,
+                    style: AppTextStyles.metricValue.copyWith(color: color, fontSize: 24),
                     children: [
-                      Text(
-                        "Hello, $firstName!",
-                        style: const TextStyle(
-                          fontSize: 22,
-                          fontWeight: FontWeight.bold,
-                          color: _primaryTextColor,
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        location,
-                        style: const TextStyle(
-                          fontSize: 14,
-                          color: _secondaryTextColor,
-                        ),
+                      TextSpan(
+                        text: ' $unit',
+                        style: AppTextStyles.metricUnit.copyWith(color: color, fontSize: 14),
                       ),
                     ],
                   ),
                 ),
-                const SizedBox(width: 16),
-                CircleAvatar(
-                  radius: 32,
-                  backgroundColor: Colors.grey.shade200,
-                  backgroundImage: NetworkImage(photoUrl),
-                  onBackgroundImageError: (exception, stackTrace) {
-                    print("Error loading profile image: $exception");
-                  },
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            Divider(color: Colors.grey.shade200, height: 1),
-            const SizedBox(height: 16),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceAround,
-              children: [
-                _buildInfoStatItem(age != null ? age.toString() : '--', 'Age'),
-                _buildInfoStatItem(heightCm != null ? '${heightCm}cm' : '--', 'Height'),
-                _buildInfoStatItem(weightKg != null ? '${weightKg.toStringAsFixed(0)}kg' : '--', 'Weight'),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildCardTemplate({
-    required IconData icon,
-    required String title,
-    required Widget content,
-    Color titleIconColor = _primaryAppColor,
-    TextStyle titleStyle = _cardTitleStyle,
-  }) {
-    return Card(
-      elevation: _cardElevation,
-      shape: RoundedRectangleBorder(borderRadius: _cardBorderRadius),
-      color: _cardBgColor,
-      margin: const EdgeInsets.only(bottom: 16.0),
-      child: Padding(
-        padding: _cardPadding,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Icon(icon, color: titleIconColor, size: 20),
-                const SizedBox(width: 8),
-                Text(title.toUpperCase(), style: titleStyle),
-              ],
-            ),
-            const SizedBox(height: 12),
-            content,
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildPostureCard() {
-    const String postureStatus = "Average";
-    const double postureValue = 0.68;
-    const String posturePercentageText = "68%";
-    const String postureAngle = "0°";
-
-    final postureContent = Row(
-      crossAxisAlignment: CrossAxisAlignment.center,
-      children: [
-        SizedBox(
-          height: 100,
-          width: 100,
-          child: Stack(
-            alignment: Alignment.center,
-            children: [
-              SizedBox(
-                height: 100,
-                width: 100,
-                child: CircularProgressIndicator(
-                  value: postureValue,
-                  strokeWidth: 10,
-                  backgroundColor: Colors.grey.shade200,
-                  valueColor: const AlwaysStoppedAnimation<Color>(_statusAverageColor),
-                ),
-              ),
-              Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(
-                    Icons.accessibility_new_rounded,
-                    color: _statusAverageColor,
-                    size: 36,
-                  ),
-                  const SizedBox(height: 5),
-                  Text(
-                    posturePercentageText,
-                    style: _postureCircularPercentageStyle,
-                  ),
-                ],
-              )
-            ],
-          ),
-        ),
-        const SizedBox(width: 20),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const Text('Posture Status', style: _postureStatusLabelStyle),
-              const SizedBox(height: 2),
-              Text(postureStatus, style: _postureStatusValueStyle),
-              const SizedBox(height: 12),
-              const Text('Posture Angle', style: _postureAngleLabelStyle),
-              const SizedBox(height: 2),
-              Text(postureAngle, style: _postureAngleValueStyle),
-            ],
-          ),
-        ),
-      ],
-    );
-
-    return InkWell(
-      onTap: () {
-        if (mounted) {
-          Navigator.pushNamed(context, AppRoutes.postureScreen);
-        }
-      },
-      borderRadius: _cardBorderRadius,
-      child: _buildCardTemplate(
-        icon: Icons.accessibility_new_rounded,
-        title: 'POSTURE',
-        titleIconColor: _statusAverageColor,
-        content: postureContent,
-      ),
-    );
-  }
-
-  Widget _buildHeartRateCard() {
-    const String currentBpm = "150";
-    const String averageBpm = "90";
-
-    final heartRateContent = Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: [
-            const Icon(Icons.favorite_rounded, color: _heartIconColor, size: 50),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  RichText(
-                    text: TextSpan(
-                      text: currentBpm,
-                      style: _heartRateBPMStyle,
-                      children: <TextSpan>[
-                        TextSpan(text: ' BPM', style: _heartRateUnitStyle.copyWith(color: _secondaryTextColor)),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  Container(
-                    height: 8,
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(4),
-                      gradient: const LinearGradient(
-                        colors: [
-                          Colors.blue, Colors.green, Colors.yellow, Colors.orange, Colors.red,
-                        ],
-                        stops: [0.0, 0.25, 0.5, 0.75, 1.0],
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 12),
-        RichText(
-            text: TextSpan(
-                text: 'Average Heart Rate in 24 Hours: ',
-                style: _heartRateAverageStyle,
-                children: <TextSpan>[
-                  TextSpan(text: averageBpm, style: _heartRateAverageStyle.copyWith(fontWeight: FontWeight.bold, color: _primaryTextColor)),
-                  TextSpan(text: ' BPM', style: _heartRateAverageStyle),
-                ])),
-        const SizedBox(height: 16),
-        Container(
-          height: 120,
-          decoration: BoxDecoration(
-            color: Colors.grey.shade100,
-            borderRadius: BorderRadius.circular(8),
-          ),
-          child: const Center(child: Text('Line Chart Placeholder', style: _subtleTextStyle)),
-        ),
-        const SizedBox(height: 8),
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: ['00', '04', '08', '12', '16', '20', '24']
-              .map((label) => Text(label, style: _chartAxisLabelStyle))
-              .toList(),
-        ),
-      ],
-    );
-
-    return InkWell(
-      onTap: () {
-        if (mounted) {
-          Navigator.pushNamed(context, AppRoutes.heartRateScreen);
-        }
-      },
-      borderRadius: _cardBorderRadius,
-      child: _buildCardTemplate(
-        icon: Icons.monitor_heart_outlined,
-        title: 'HEART RATE',
-        titleIconColor: _heartIconColor,
-        content: heartRateContent,
-      ),
-    );
-  }
-
-  Widget _buildHrvCard() {
-    const String hrvStatus = "Very Low";
-    const String hrvValue = "35";
-    const String hrvDescription = "High stress detected! Take deep breaths and rest.";
-
-    return Expanded(
-      child: Card(
-        elevation: _cardElevation,
-        shape: RoundedRectangleBorder(borderRadius: _cardBorderRadius),
-        color: _cardBgColor,
-        child: Padding(
-          padding: _cardPadding,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Text("HRV", style: _hrvCardTitleStyle),
-              const SizedBox(height: 4),
-              Text(hrvStatus, style: _hrvStatusTextStyle),
-              const SizedBox(height: 8),
-              RichText(
-                text: TextSpan(
-                  text: hrvValue,
-                  style: _hrvValueStyle,
-                  children: <TextSpan>[
-                    TextSpan(text: 'ms', style: _hrvUnitStyle),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 12),
-              Container(
-                height: 8,
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(4),
-                  gradient: const LinearGradient(
-                    colors: [Colors.blue, Colors.green, Colors.yellow, Colors.orange, Colors.red],
-                    stops: [0.0, 0.25, 0.5, 0.75, 1.0],
-                  ),
-                ),
-              ),
-              const SizedBox(height: 12),
-              Flexible(
-                child: Text(
-                  hrvDescription,
-                  style: _hrvDescriptionStyle,
-                  textAlign: TextAlign.center,
-                  softWrap: true,
-                ),
               ),
             ],
           ),
-        ),
+        ],
       ),
     );
   }
+}
 
-  Widget _buildStressLevelCard() {
-    const String stressPercentage = "99%";
-    const double stressProgressValue = 0.99;
-    const String stressDescription = "You're under high stress. Try deep breathing or a quick stretch to reset.";
-
-    final homeStressContent = Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.sentiment_very_dissatisfied_rounded, color: _stressIconColor, size: 36),
-            const SizedBox(width: 8),
-            Text(stressPercentage, style: _stressValueStyle),
-          ],
-        ),
-        const SizedBox(height: 12),
-        ClipRRect(
-          borderRadius: BorderRadius.circular(4),
-          child: LinearProgressIndicator(
-            value: stressProgressValue,
-            backgroundColor: Colors.grey.shade200,
-            valueColor: const AlwaysStoppedAnimation<Color>(_stressIconColor),
-            minHeight: 8,
-          ),
-        ),
-        const SizedBox(height: 12),
-        Flexible(
-          child: Text(
-            stressDescription,
-            style: _stressDescriptionStyle,
-            textAlign: TextAlign.center,
-            softWrap: true,
-          ),
-        ),
-      ],
-    );
-
-    return Expanded(
-      child: Material(
-        color: _cardBgColor,
-        borderRadius: _cardBorderRadius,
-        elevation: _cardElevation,
-        child: InkWell(
-          onTap: () {
-            if (mounted) {
-              Navigator.pushNamed(context, AppRoutes.stressLevelScreen);
-            }
-          },
-          borderRadius: _cardBorderRadius,
-          child: Padding(
-              padding: _cardPadding,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Text("Stress Level", style: _stressCardTitleStyle),
-                  const SizedBox(height: 12),
-                  homeStressContent,
-                ],
-              )
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildDeviceCard() {
-    const String batteryPercentage = "99%";
-    const double batteryLevel = 0.99;
-
-    Widget vestIconPlaceholder = Icon(
-      Icons.shield_outlined,
-      size: 40,
-      color: _deviceTitleIconColor,
-    );
-
-    final deviceCardContent = Row(
-      children: [
-        vestIconPlaceholder,
-        const SizedBox(width: 12),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Smart Vest Connected',
-                style: _statValueStyle.copyWith(fontSize: 16, color: _statusGoodColor),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                'Battery: $batteryPercentage',
-                style: _subtleTextStyle,
-              ),
-            ],
-          ),
-        ),
-        Icon(Icons.chevron_right, color: _secondaryTextColor.withOpacity(0.7)),
-      ],
-    );
-
-    return InkWell(
-      onTap: () {
-        if (mounted) {
-          Navigator.pushNamed(context, AppRoutes.smartVestScreen);
-        }
-      },
-      borderRadius: _cardBorderRadius,
-      child: Card(
-        elevation: _cardElevation,
-        shape: RoundedRectangleBorder(borderRadius: _cardBorderRadius),
-        color: _cardBgColor,
-        margin: const EdgeInsets.only(bottom: 16.0),
-        child: Padding(
-          padding: _cardPadding,
-          // The _buildCardTemplate includes a title row, which is not what the
-          // new Device Card design on home screen has.
-          // So, we directly use the deviceCardContent.
-          // If a title bar was needed like other cards, _buildCardTemplate would be used.
-          child: deviceCardContent,
-        ),
-      ),
-    );
-  }
-
-
-  Widget _buildConnectDeviceNotice(String message) {
-    final noticeContent = Column(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        const SizedBox(height: 8),
-        Text(
-          message,
-          textAlign: TextAlign.center,
-          style: const TextStyle(fontSize: 16, color: _secondaryTextColor),
-        ),
-        const SizedBox(height: 20),
-        ElevatedButton.icon(
-          icon: const Icon(Icons.bluetooth_searching_rounded),
-          label: const Text('Connect Device'),
-          onPressed: () {
-            if(mounted) Navigator.pushNamed(context, AppRoutes.searchAndConnect);
-          },
-          style: ElevatedButton.styleFrom(
-            backgroundColor: _primaryAppColor,
-            foregroundColor: Colors.white,
-            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-            textStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8.0)),
-          ),
-        ),
-        const SizedBox(height: 8),
-      ],
-    );
-
-    return _buildCardTemplate(
-      icon: Icons.bluetooth_disabled_rounded,
-      title: 'DEVICE NOT CONNECTED',
-      titleIconColor: _secondaryTextColor,
-      content: noticeContent,
-      titleStyle: _cardTitleStyle,
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final bool hasDeviceConnected = true;
-
-    return Scaffold(
-      backgroundColor: _scaffoldBgColor,
-      appBar: AppBar(
-        title: Text(_isLoading ? 'Loading...' : 'Welcome, ${_userData?['firstName'] ?? _user?.displayName?.split(' ').first ?? 'User'}'),
-        backgroundColor: _scaffoldBgColor,
-        elevation: 0,
-        foregroundColor: _primaryTextColor,
-        centerTitle: true,
-        automaticallyImplyLeading: false,
-      ),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator(color: _primaryAppColor))
-          : RefreshIndicator(
-        onRefresh: _fetchUserData,
-        color: _primaryAppColor,
-        child: Container(
-          margin: const EdgeInsets.all(0),
-          decoration: BoxDecoration(
-            color: _dashboardContentBgColor,
-            borderRadius: BorderRadius.circular(_dashboardCornerRadius),
-          ),
-          clipBehavior: Clip.antiAlias,
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.fromLTRB(16.0, 24.0, 16.0, 16.0),
-            physics: const AlwaysScrollableScrollPhysics(),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _buildUserDetailsCard(),
-                if (hasDeviceConnected) ...[
-                  _buildPostureCard(),
-                  _buildHeartRateCard(),
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 16.0),
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        _buildHrvCard(),
-                        const SizedBox(width: 16),
-                        _buildStressLevelCard(), // Now Clickable
-                      ],
-                    ),
-                  ),
-                  _buildDeviceCard(),
-                ] else ...[
-                  _buildConnectDeviceNotice('Connect your device to start viewing your health data.'),
-                ],
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
+// A simple Tuple class for returning multiple values from a function.
+class Tuple2<T1, T2> {
+  final T1 item1;
+  final T2 item2;
+  Tuple2(this.item1, this.item2);
 }

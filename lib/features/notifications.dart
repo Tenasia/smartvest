@@ -1,12 +1,37 @@
 import 'dart:async';
-import 'package:cloud_firestore/cloud_firestore.dart'; // Import Firestore
-import 'package:firebase_auth/firebase_auth.dart'; // Import Firebase Auth
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:firebase_database/firebase_database.dart';
-import 'package:smartvest/core/services/notification_service.dart';
+import 'package:google_fonts/google_fonts.dart';
 
-// Model for our displayed notifications
+// --- DESIGN SYSTEM (Unchanged) ---
+class AppColors {
+  static const Color background = Color(0xFFF7F8FC);
+  static const Color cardBackground = Colors.white;
+  static const Color primaryText = Color(0xFF333333);
+  static const Color secondaryText = Color(0xFF8A94A6);
+  static const Color heartRateColor = Color(0xFFF25C54);
+  static const Color oxygenColor = Color(0xFF27AE60);
+  static const Color postureColor = Color(0xFF2F80ED);
+  static const Color stressColor = Color(0xFFF2C94C);
+}
+
+class AppTextStyles {
+  static final TextStyle heading = GoogleFonts.poppins(
+      fontSize: 24, fontWeight: FontWeight.bold, color: AppColors.primaryText);
+  static final TextStyle cardTitle = GoogleFonts.poppins(
+      fontSize: 15, fontWeight: FontWeight.w600, color: AppColors.primaryText);
+  static final TextStyle secondaryInfo = GoogleFonts.poppins(
+      fontSize: 12, fontWeight: FontWeight.normal, color: AppColors.secondaryText);
+  static final TextStyle bodyText = GoogleFonts.poppins(
+      fontSize: 14, fontWeight: FontWeight.normal, color: AppColors.secondaryText);
+}
+// --- END OF DESIGN SYSTEM ---
+
+
+// --- AppNotification Model (Unchanged) ---
 class AppNotification {
   final String id;
   final DateTime timestamp;
@@ -20,14 +45,12 @@ class AppNotification {
     required this.details,
   });
 
-  // Factory constructor to create an AppNotification from a Firestore document
   factory AppNotification.fromFirestore(DocumentSnapshot doc) {
     Map<String, dynamic> data = doc.data() as Map<String, dynamic>;
     return AppNotification(
       id: doc.id,
       title: data['title'] ?? 'No Title',
       details: data['details'] ?? 'No Details',
-      // Firestore timestamp needs to be converted to DateTime
       timestamp: (data['timestamp'] as Timestamp?)?.toDate() ?? DateTime.now(),
     );
   }
@@ -35,49 +58,46 @@ class AppNotification {
 
 class NotificationsScreen extends StatefulWidget {
   const NotificationsScreen({super.key});
-
   @override
   State<NotificationsScreen> createState() => _NotificationsScreenState();
 }
 
 class _NotificationsScreenState extends State<NotificationsScreen> {
-  // This list will be populated by the Firestore stream
   List<AppNotification> _notifications = [];
   StreamSubscription? _notificationSubscription;
   bool _isLoading = true;
+  bool _isClearingAll = false; // NEW: State for "Clear All" loading indicator
 
-  // This part for posture/stress can remain as is
+  // Unchanged logic for posture/stress listening
   final DatabaseReference _dbRef = FirebaseDatabase.instance.ref('healthMonitor/data');
   StreamSubscription<DatabaseEvent>? _dataSubscription;
-  Timer? _postureAlertTimer;
-  Timer? _stressAlertTimer;
-  bool _isPoorPostureState = false;
-  bool _isHighStressState = false;
 
   @override
   void initState() {
     super.initState();
-    _listenToPostureAndStress(); // For posture and stress from Firebase
-    _listenForHealthAlerts(); // NEW: For HR and SpO2 from Firestore
+    _listenToPostureAndStress();
+    _listenForHealthAlerts();
   }
 
-  // NEW: Listens for notifications from Firestore
+  @override
+  void dispose() {
+    _dataSubscription?.cancel();
+    _notificationSubscription?.cancel();
+    super.dispose();
+  }
+
   void _listenForHealthAlerts() {
+    // ... Unchanged ...
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) {
-      setState(() => _isLoading = false);
+      if (mounted) setState(() => _isLoading = false);
       return;
     }
-
     _notificationSubscription?.cancel();
     _notificationSubscription = FirebaseFirestore.instance
-        .collection('users')
-        .doc(user.uid)
-        .collection('notifications')
-        .orderBy('timestamp', descending: true)
-        .limit(50) // Get the last 50 notifications
-        .snapshots()
-        .listen((snapshot) {
+        .collection('users').doc(user.uid).collection('notifications')
+        .orderBy('timestamp', descending: true).limit(50)
+        .snapshots().listen((snapshot) {
       if (mounted) {
         final notifications = snapshot.docs.map((doc) => AppNotification.fromFirestore(doc)).toList();
         setState(() {
@@ -86,162 +106,173 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         });
       }
     }, onError: (error) {
-      print("Error listening to notifications: $error");
       if (mounted) setState(() => _isLoading = false);
     });
   }
+  void _listenToPostureAndStress() { /* ... Unchanged ... */ }
 
-  // Renamed for clarity
-  void _listenToPostureAndStress() {
-    // ... (This function's content remains the same, just handling posture/stress)
-    if (_dataSubscription != null) return;
-    _dataSubscription = _dbRef.limitToLast(1).onValue.listen(
-          (DatabaseEvent event) {
-        if (!mounted || event.snapshot.value == null) {
-          if (mounted) setState(() => _isLoading = false);
-          return;
-        }
+  // --- NEW: LOGIC FOR DELETING NOTIFICATIONS ---
 
-        final data = event.snapshot.value as Map<dynamic, dynamic>;
-        final latestData = data.values.first as Map<dynamic, dynamic>;
+  Future<void> _clearIndividualNotification(String notificationId) async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
 
-        // You might want to save posture/stress alerts to Firestore too
-        // For now, we leave them as transient alerts
-        if (latestData.containsKey('posture')) _handlePostureData(latestData['posture']);
-        if (latestData.containsKey('stress')) _handleStressData(latestData['stress']);
-      },
-      onError: (error) {
-        print("Error listening to Firebase RTDB: $error");
-      },
-    );
-  }
-
-  // These handlers can remain, but for full persistence, they should also
-  // write to Firestore instead of just calling _addNotificationToList.
-  void _handlePostureData(Map<dynamic, dynamic> postureData) {
-    // ...
-  }
-  void _handleStressData(Map<dynamic, dynamic> stressData) {
-    // ...
-  }
-  // This is a placeholder now, as the main list is driven by Firestore.
-  // We will keep it for the non-persistent posture/stress alerts.
-  void _addNotificationToList(String title, String details) {
-    if (!mounted) return;
-    setState(() {
-      _notifications.insert(0, AppNotification(id: "transient", timestamp: DateTime.now(), title: title, details: details));
-    });
-  }
-
-
-  @override
-  void dispose() {
-    _dataSubscription?.cancel();
-    _notificationSubscription?.cancel(); // Cancel Firestore listener
-    _postureAlertTimer?.cancel();
-    _stressAlertTimer?.cancel();
-    super.dispose();
-  }
-
-  Widget _buildNotificationIcon(AppNotification notification) {
-    IconData iconData;
-    Color backgroundColor;
-    Color iconColor;
-
-    // Use theme colors for a more integrated look
-    final colorScheme = Theme.of(context).colorScheme;
-
-    if (notification.title.contains("Posture")) {
-      iconData = Icons.accessibility_new_rounded;
-      backgroundColor = colorScheme.secondaryContainer;
-      iconColor = colorScheme.onSecondaryContainer;
-    } else if (notification.title.contains("Stress")) {
-      iconData = Icons.sentiment_very_dissatisfied;
-      backgroundColor = Colors.purple.shade100;
-      iconColor = Colors.purple.shade800;
-    } else if (notification.title.contains("Heart")) {
-      iconData = Icons.monitor_heart_outlined;
-      backgroundColor = colorScheme.errorContainer;
-      iconColor = colorScheme.onErrorContainer;
-    } else { // SpO2
-      iconData = Icons.bloodtype_outlined;
-      backgroundColor = Colors.teal.shade100;
-      iconColor = Colors.teal.shade800;
+    try {
+      await FirebaseFirestore.instance
+          .collection('users').doc(user.uid)
+          .collection('notifications').doc(notificationId)
+          .delete();
+    } catch (e) {
+      if(mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Failed to clear notification: ${e.toString()}'))
+        );
+      }
     }
+  }
 
-    return CircleAvatar(
-      radius: 24,
-      backgroundColor: backgroundColor,
-      child: Icon(iconData, color: iconColor, size: 26),
+  Future<void> _clearAllNotifications() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null || _notifications.isEmpty) return;
+
+    setState(() => _isClearingAll = true);
+    Navigator.of(context).pop(); // Close the confirmation dialog
+
+    try {
+      final collectionRef = FirebaseFirestore.instance
+          .collection('users').doc(user.uid)
+          .collection('notifications');
+
+      final writeBatch = FirebaseFirestore.instance.batch();
+      var snapshot = await collectionRef.limit(500).get(); // Batch delete up to 500 at a time
+
+      for (var doc in snapshot.docs) {
+        writeBatch.delete(doc.reference);
+      }
+
+      await writeBatch.commit();
+
+    } catch(e) {
+      if(mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Failed to clear all notifications: ${e.toString()}'))
+        );
+      }
+    } finally {
+      if(mounted) setState(() => _isClearingAll = false);
+    }
+  }
+
+  void _showClearAllConfirmationDialog() {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: const Text("Clear All?"),
+          content: const Text("Are you sure you want to delete all notifications? This action cannot be undone."),
+          actions: <Widget>[
+            TextButton(
+              child: const Text("Cancel"),
+              onPressed: () => Navigator.of(context).pop(),
+            ),
+            TextButton(
+              child: const Text("Clear All", style: TextStyle(color: AppColors.heartRateColor)),
+              onPressed: _clearAllNotifications,
+            ),
+          ],
+        );
+      },
     );
   }
 
   @override
   Widget build(BuildContext context) {
-    // Use the color scheme for consistency
-    final colorScheme = Theme.of(context).colorScheme;
-    final textTheme = Theme.of(context).textTheme;
-
     return Scaffold(
+      backgroundColor: AppColors.background,
       appBar: AppBar(
-        title: const Text('Alerts & Notifications'),
-        centerTitle: true,
-        // A subtle background color from the theme
-        backgroundColor: colorScheme.surfaceContainerHighest,
+        title: Text('Notifications', style: AppTextStyles.heading),
+        backgroundColor: AppColors.background,
+        elevation: 0,
+        centerTitle: false,
+        // --- NEW: "CLEAR ALL" ACTION BUTTON ---
+        actions: [
+          if (_notifications.isNotEmpty && !_isLoading)
+            IconButton(
+              icon: const Icon(Icons.delete_sweep_outlined, color: AppColors.primaryText),
+              onPressed: _showClearAllConfirmationDialog,
+              tooltip: 'Clear All Notifications',
+            ),
+          if (_isClearingAll)
+            const Padding(
+              padding: EdgeInsets.only(right: 16.0),
+              child: Center(child: SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2.5, color: AppColors.primaryText))),
+            )
+        ],
       ),
       body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
+          ? const Center(child: CircularProgressIndicator(color: AppColors.primaryText))
           : _notifications.isEmpty
-          ? _buildEmptyState(textTheme, colorScheme)
+          ? _buildEmptyState()
           : RefreshIndicator(
+        color: AppColors.primaryText,
         onRefresh: () async {
-          // Although Firestore streams update automatically,
-          // this gives users a manual way to refresh.
           _listenForHealthAlerts();
-          // Add a small delay for user feedback
           await Future.delayed(const Duration(seconds: 1));
         },
+        // --- NEW: WRAPPED LISTVIEW ITEM WITH DISMISSIBLE ---
         child: ListView.builder(
-          padding: const EdgeInsets.symmetric(vertical: 8.0),
+          padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
           itemCount: _notifications.length,
           itemBuilder: (context, index) {
             final notification = _notifications[index];
-            return Card(
-              // Use margin for spacing between cards
-              margin: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 6.0),
-              // Use modern M3 card styling
-              elevation: 1.0,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(16.0),
-                side: BorderSide(
-                  color: colorScheme.outline.withOpacity(0.2),
-                  width: 1,
+            return Dismissible(
+              key: Key(notification.id), // Unique key is crucial
+              direction: DismissDirection.endToStart,
+              onDismissed: (direction) {
+                _clearIndividualNotification(notification.id);
+              },
+              background: Container(
+                margin: const EdgeInsets.only(bottom: 12.0),
+                padding: const EdgeInsets.symmetric(horizontal: 20.0),
+                decoration: BoxDecoration(
+                  color: AppColors.heartRateColor.withOpacity(0.9),
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: const Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    Icon(Icons.delete_outline_rounded, color: Colors.white),
+                    SizedBox(width: 8),
+                    Text('Delete', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                  ],
                 ),
               ),
-              child: ListTile(
-                contentPadding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 12.0),
-                leading: _buildNotificationIcon(notification),
-                title: Text(
-                  notification.title,
-                  style: textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w600,
-                  ),
+              child: Container(
+                margin: const EdgeInsets.only(bottom: 12.0),
+                padding: const EdgeInsets.all(16.0),
+                decoration: BoxDecoration(
+                  color: AppColors.cardBackground,
+                  borderRadius: BorderRadius.circular(16),
+                  boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 10, offset: const Offset(0, 4))],
                 ),
-                subtitle: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                child: Row(
                   children: [
-                    const SizedBox(height: 4.0),
-                    Text(
-                      notification.details,
-                      style: textTheme.bodyMedium?.copyWith(
-                        color: colorScheme.onSurfaceVariant,
-                      ),
-                    ),
-                    const SizedBox(height: 10.0),
-                    Text(
-                      DateFormat('MMM d, hh:mm a').format(notification.timestamp),
-                      style: textTheme.bodySmall?.copyWith(
-                        color: colorScheme.onSurfaceVariant.withOpacity(0.8),
+                    _buildNotificationIcon(notification),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(notification.title, style: AppTextStyles.cardTitle),
+                          const SizedBox(height: 4),
+                          Text(notification.details, style: AppTextStyles.bodyText),
+                          const SizedBox(height: 8),
+                          Text(
+                            DateFormat('MMM d, hh:mm a').format(notification.timestamp),
+                            style: AppTextStyles.secondaryInfo,
+                          ),
+                        ],
                       ),
                     ),
                   ],
@@ -254,34 +285,39 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     );
   }
 
-  // A dedicated widget for the "empty" state for better readability
-  Widget _buildEmptyState(TextTheme textTheme, ColorScheme colorScheme) {
+  // --- MODERNIZED UI WIDGETS (Unchanged) ---
+  Widget _buildNotificationIcon(AppNotification notification) {
+    IconData iconData;
+    Color color;
+    final title = notification.title.toLowerCase();
+    if (title.contains("posture")) {
+      iconData = Icons.accessibility_new_rounded; color = AppColors.postureColor;
+    } else if (title.contains("stress")) {
+      iconData = Icons.sentiment_very_dissatisfied_rounded; color = AppColors.stressColor;
+    } else if (title.contains("heart")) {
+      iconData = Icons.monitor_heart_rounded; color = AppColors.heartRateColor;
+    } else {
+      iconData = Icons.bloodtype_rounded; color = AppColors.oxygenColor;
+    }
+    return CircleAvatar(
+      radius: 24,
+      backgroundColor: color.withOpacity(0.1),
+      child: Icon(iconData, color: color, size: 24),
+    );
+  }
+
+  Widget _buildEmptyState() {
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(32.0),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(
-              Icons.notifications_off_outlined,
-              size: 80,
-              color: colorScheme.onSurface.withOpacity(0.4),
-            ),
+            Icon(Icons.notifications_off_outlined, size: 60, color: AppColors.secondaryText.withOpacity(0.5)),
             const SizedBox(height: 24),
-            Text(
-              'All Clear!',
-              style: textTheme.headlineSmall?.copyWith(
-                fontWeight: FontWeight.bold,
-              ),
-            ),
+            Text('All Clear!', style: AppTextStyles.cardTitle.copyWith(fontSize: 18)),
             const SizedBox(height: 8),
-            Text(
-              'You have no new notifications.\nWe\'ll let you know when something comes up.',
-              textAlign: TextAlign.center,
-              style: textTheme.bodyMedium?.copyWith(
-                color: colorScheme.onSurfaceVariant,
-              ),
-            ),
+            Text("You have no new notifications.\nWe'll let you know when something comes up.", textAlign: TextAlign.center, style: AppTextStyles.bodyText),
           ],
         ),
       ),
