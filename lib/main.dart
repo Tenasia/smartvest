@@ -5,6 +5,7 @@ import 'package:smartvest/core/services/background_service.dart';
 import 'package:smartvest/core/services/notification_service.dart';
 import 'features/auth/login.dart';
 import 'firebase_options.dart';
+import 'package:smartvest/features/auth/auth_wrapper.dart'; // Import the new wrapper
 
 void main() async {
   try {
@@ -39,7 +40,7 @@ class MyApp extends StatelessWidget {
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
         useMaterial3: true,
       ),
-      home: const LoginScreen(),
+      home: const AuthWrapper(),
     );
   }
 }

@@ -262,20 +262,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   Future<void> _signOut() async {
     try {
-      print("ProfileScreen: Initiating sign out...");
       await _authService.signOut();
-      print("ProfileScreen: Sign out from AuthService completed.");
-
-      if (mounted) {
-        print("ProfileScreen: Navigating to login screen.");
-        Navigator.of(context)
-            .pushNamedAndRemoveUntil(AppRoutes.login, (route) => false);
-      } else {
-        print(
-            "ProfileScreen: Widget not mounted after sign out, cannot navigate.");
-      }
     } catch (e) {
-      print("Error in ProfileScreen _signOut: $e");
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Failed to sign out: ${e.toString()}')),
