@@ -1,20 +1,17 @@
 import 'package:flutter/material.dart';
 import 'package:smartvest/core/services/health_service.dart';
 import 'package:smartvest/core/services/gemini_service.dart';
-// import 'package:smartvest/core/services/notification_service.dart'; // No longer needed here
 import 'package:health/health.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:intl/intl.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'dart:async'; // Import Timer
+import 'dart:async';
 
-// --- Caching for AI Summary ---
+// (Caching and Style constants remain the same)
 String _cachedHeartRateSummary = "Generating summary...";
 DateTime? _lastHeartRateSummaryTimestamp;
-
-// --- Style Constants ---
 const Color _screenBgColor = Color(0xFFF5F5F5);
 const Color _cardBgColor = Colors.white;
 const Color _primaryTextColor = Color(0xFF333333);
@@ -22,11 +19,9 @@ const Color _secondaryTextColor = Color(0xFF757575);
 const Color _accentColorBlue = Color(0xFF007AFF);
 const Color _heartRateColor = Color(0xFFF25C54);
 const Color _aiSummaryIconColor = Color(0xFF9B59B6);
-
 final BorderRadius _cardBorderRadius = BorderRadius.circular(12.0);
 const EdgeInsets _cardPadding = EdgeInsets.all(16.0);
 const double _cardElevation = 1.5;
-
 const TextStyle _generalCardTitleStyle = TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: _primaryTextColor);
 const TextStyle _summaryLabelStyle = TextStyle(fontSize: 12, color: _secondaryTextColor);
 const TextStyle _summaryValueStyle = TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: _primaryTextColor);
@@ -35,6 +30,7 @@ const TextStyle _currentHrUnitStyle = TextStyle(fontSize: 16, color: _secondaryT
 const TextStyle _currentHrTimeStyle = TextStyle(fontSize: 12, color: _secondaryTextColor);
 const TextStyle _chartAxisLabelStyle = TextStyle(fontSize: 10, color: _secondaryTextColor);
 const TextStyle _cardTitleStyle = TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: _secondaryTextColor);
+
 
 class HeartRateScreen extends StatefulWidget {
   const HeartRateScreen({super.key});
@@ -46,7 +42,7 @@ class HeartRateScreen extends StatefulWidget {
 class _HeartRateScreenState extends State<HeartRateScreen> {
   final HealthService _healthService = HealthService();
   final GeminiService _geminiService = GeminiService();
-  int _selectedSegment = 0; // 0: Day, 1: Week, 2: Month
+  int _selectedSegment = 0;
   bool _isLoading = true;
 
   List<HealthDataPoint> _dataPoints = [];
@@ -55,12 +51,10 @@ class _HeartRateScreenState extends State<HeartRateScreen> {
   DateTime? _chartStartTime;
   Timer? _periodicTimer;
 
-
   @override
   void initState() {
     super.initState();
     _fetchDataForSegment();
-    // Add a timer to refresh the data on this screen automatically
     _periodicTimer = Timer.periodic(const Duration(minutes: 1), (timer) {
       if(mounted) {
         _fetchDataForSegment();
@@ -74,9 +68,6 @@ class _HeartRateScreenState extends State<HeartRateScreen> {
     super.dispose();
   }
 
-  // REMOVED _checkHeartRateThresholds method from here
-
-  // --- MODIFY THIS METHOD ---
   Future<void> _fetchDataForSegment() async {
     if (!mounted) return;
     setState(() { _isLoading = true; });
@@ -117,17 +108,17 @@ class _HeartRateScreenState extends State<HeartRateScreen> {
     if (mounted) {
       setState(() {
         _dataPoints = points;
-        _stats = currentStats; // Use the calculated stats
+        _stats = currentStats;
         _isLoading = false;
       });
 
-      // REMOVED threshold check call
       _generateAiSummary();
     }
   }
 
-  Future<void> _generateAiSummary() async {
-    if (_lastHeartRateSummaryTimestamp != null &&
+  // --- vvv MODIFIED THIS FUNCTION vvv ---
+  Future<void> _generateAiSummary({bool forceRefresh = false}) async {
+    if (!forceRefresh && _lastHeartRateSummaryTimestamp != null &&
         DateTime.now().difference(_lastHeartRateSummaryTimestamp!) < const Duration(hours: 1)) {
       if(mounted) {
         setState(() => _aiSummary = _cachedHeartRateSummary);
@@ -142,6 +133,22 @@ class _HeartRateScreenState extends State<HeartRateScreen> {
 
     if (mounted) setState(() => _aiSummary = "Generating new summary...");
 
+    // Determine the time period description based on the selected filter
+    String timePeriodDescription;
+    switch (_selectedSegment) {
+      case 0:
+        timePeriodDescription = "last 24 hours";
+        break;
+      case 1:
+        timePeriodDescription = "last 7 days";
+        break;
+      case 2:
+        timePeriodDescription = "last 30 days";
+        break;
+      default:
+        timePeriodDescription = "selected period";
+    }
+
     User? user = FirebaseAuth.instance.currentUser;
     int? userAge;
     if (user != null) {
@@ -152,7 +159,13 @@ class _HeartRateScreenState extends State<HeartRateScreen> {
       }
     }
 
-    final summary = await _geminiService.getHealthSummary("Heart Rate", _dataPoints, userAge);
+    // Pass the new description to the Gemini service
+    final summary = await _geminiService.getHealthSummary(
+      "Heart Rate",
+      _dataPoints,
+      userAge,
+      timePeriodDescription, // Pass the dynamic description
+    );
 
     _cachedHeartRateSummary = summary;
     _lastHeartRateSummaryTimestamp = DateTime.now();
@@ -160,7 +173,7 @@ class _HeartRateScreenState extends State<HeartRateScreen> {
     if(mounted) setState(() => _aiSummary = summary);
   }
 
-  // --- WIDGETS (No changes needed below this line in this file) ---
+  // --- vvv MODIFIED THIS WIDGET vvv ---
   Widget _buildSummaryCard(String title, String summary, IconData icon, Color iconColor) {
     return Card(
       elevation: _cardElevation,
@@ -172,9 +185,31 @@ class _HeartRateScreenState extends State<HeartRateScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(children: [Icon(icon, color: iconColor, size: 20), const SizedBox(width: 8), Text(title.toUpperCase(), style: _cardTitleStyle)]),
+            Row(
+              children: [
+                Icon(icon, color: iconColor, size: 20),
+                const SizedBox(width: 8),
+                Text(title.toUpperCase(), style: _cardTitleStyle),
+                const Spacer(),
+                SizedBox(
+                  height: 36,
+                  width: 36,
+                  child: IconButton(
+                    padding: EdgeInsets.zero,
+                    icon: const Icon(Icons.refresh, size: 20, color: _secondaryTextColor),
+                    onPressed: () => _generateAiSummary(forceRefresh: true),
+                    tooltip: 'Refresh Summary',
+                  ),
+                ),
+              ],
+            ),
             const SizedBox(height: 12),
-            MarkdownBody(data: summary, styleSheet: MarkdownStyleSheet.fromTheme(Theme.of(context)).copyWith(p: const TextStyle(color: _primaryTextColor))),
+            MarkdownBody(
+              data: summary,
+              styleSheet: MarkdownStyleSheet.fromTheme(Theme.of(context)).copyWith(
+                p: const TextStyle(color: _primaryTextColor),
+              ),
+            ),
           ],
         ),
       ),
@@ -255,165 +290,82 @@ class _HeartRateScreenState extends State<HeartRateScreen> {
     );
   }
 
-  // Updated method to create bar chart instead of line chart
   Widget _buildBarChart() {
     if (_dataPoints.isEmpty) {
       return const Center(child: Text("No data for selected period."));
     }
 
     bool isDayView = _selectedSegment == 0;
-
     List<BarChartGroupData> barGroups = [];
 
     if (isDayView) {
-      // For day view, group data by hour
       Map<int, List<double>> hourlyData = {};
-
       for (var point in _dataPoints) {
         int hour = point.dateFrom.hour;
         double value = (point.value as NumericHealthValue).numericValue.toDouble();
-
         if (!hourlyData.containsKey(hour)) {
           hourlyData[hour] = [];
         }
         hourlyData[hour]!.add(value);
       }
-
-      // Create bar groups for each hour with data
       for (int hour = 0; hour < 24; hour++) {
-        double avgValue = 0;
-        if (hourlyData.containsKey(hour) && hourlyData[hour]!.isNotEmpty) {
-          avgValue = hourlyData[hour]!.reduce((a, b) => a + b) / hourlyData[hour]!.length;
-        }
-
-        barGroups.add(
-          BarChartGroupData(
-            x: hour,
-            barRods: [
-              BarChartRodData(
-                toY: avgValue,
-                color: _heartRateColor,
-                width: 8,
-                borderRadius: const BorderRadius.only(
-                  topLeft: Radius.circular(2),
-                  topRight: Radius.circular(2),
-                ),
-              ),
-            ], // test
-          ),
-        );
+        double avgValue = hourlyData.containsKey(hour) && hourlyData[hour]!.isNotEmpty
+            ? hourlyData[hour]!.reduce((a, b) => a + b) / hourlyData[hour]!.length
+            : 0;
+        barGroups.add(BarChartGroupData(x: hour, barRods: [BarChartRodData(toY: avgValue, color: _heartRateColor, width: 8, borderRadius: const BorderRadius.only(topLeft: Radius.circular(2), topRight: Radius.circular(2)))]));
       }
     } else {
-      // For week/month view, group by day
       Map<int, List<double>> dailyData = {};
-
       for (var point in _dataPoints) {
         int daysSinceStart = point.dateFrom.difference(_chartStartTime!).inDays;
         double value = (point.value as NumericHealthValue).numericValue.toDouble();
-
         if (!dailyData.containsKey(daysSinceStart)) {
           dailyData[daysSinceStart] = [];
         }
         dailyData[daysSinceStart]!.add(value);
       }
-
       dailyData.forEach((day, values) {
         double avgValue = values.reduce((a, b) => a + b) / values.length;
-        barGroups.add(
-          BarChartGroupData(
-            x: day,
-            barRods: [
-              BarChartRodData(
-                toY: avgValue,
-                color: _heartRateColor,
-                width: 12,
-                borderRadius: const BorderRadius.only(
-                  topLeft: Radius.circular(2),
-                  topRight: Radius.circular(2),
-                ),
-              ),
-            ],
-          ),
-        );
+        barGroups.add(BarChartGroupData(x: day, barRods: [BarChartRodData(toY: avgValue, color: _heartRateColor, width: 12, borderRadius: const BorderRadius.only(topLeft: Radius.circular(2), topRight: Radius.circular(2)))]));
       });
     }
 
     return BarChart(
       BarChartData(
-        alignment: BarChartAlignment.spaceAround,
-        maxY: (_stats.max ?? 120) + 20,
-        minY: 0,
-        barGroups: barGroups,
-        titlesData: FlTitlesData(
-          leftTitles: AxisTitles(
-            sideTitles: SideTitles(
-              showTitles: true,
-              reservedSize: 40,
-              interval: 24,
-              getTitlesWidget: (value, meta) => SideTitleWidget(
-                meta: meta,
-                child: Text(
-                  value.toInt().toString(),
-                  style: _chartAxisLabelStyle,
-                ),
+          alignment: BarChartAlignment.spaceAround,
+          maxY: (_stats.max ?? 120) + 20,
+          minY: 0,
+          barGroups: barGroups,
+          titlesData: FlTitlesData(
+            leftTitles: AxisTitles(sideTitles: SideTitles(showTitles: true, reservedSize: 40, interval: 24, getTitlesWidget: (value, meta) => SideTitleWidget(meta: meta, child: Text(value.toInt().toString(), style: _chartAxisLabelStyle)))),
+            rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+            topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+            bottomTitles: AxisTitles(
+              sideTitles: SideTitles(
+                showTitles: true,
+                reservedSize: 30,
+                interval: isDayView ? 6 : (_selectedSegment == 1 ? 1 : 5),
+                getTitlesWidget: (value, meta) {
+                  if (isDayView) {
+                    String text = '';
+                    switch (value.toInt()) {
+                      case 0: text = '00:00'; break;
+                      case 6: text = '06:00'; break;
+                      case 12: text = '12:00'; break;
+                      case 18: text = '18:00'; break;
+                      case 23: text = '00:00'; break;
+                    }
+                    return SideTitleWidget(meta: meta, child: Text(text, style: _chartAxisLabelStyle));
+                  } else {
+                    final date = _chartStartTime!.add(Duration(days: value.toInt()));
+                    return SideTitleWidget(meta: meta, child: Text(DateFormat.Md().format(date), style: _chartAxisLabelStyle));
+                  }
+                },
               ),
             ),
           ),
-          rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-          topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-          bottomTitles: AxisTitles(
-            sideTitles: SideTitles(
-              showTitles: true,
-              reservedSize: 30,
-              interval: isDayView ? 6 : (_selectedSegment == 1 ? 1 : 5),
-              getTitlesWidget: (value, meta) {
-                if (isDayView) {
-                  // Show time labels for day view
-                  String text = '';
-                  switch (value.toInt()) {
-                    case 0: text = '00:00'; break;
-                    case 6: text = '06:00'; break;
-                    case 12: text = '12:00'; break;
-                    case 18: text = '18:00'; break;
-                    case 23: text = '00:00'; break;
-                  }
-                  return SideTitleWidget(
-                    meta: meta,
-                    child: Text(text, style: _chartAxisLabelStyle),
-                  );
-                } else {
-                  // Show date labels for week/month view
-                  final date = _chartStartTime!.add(Duration(days: value.toInt()));
-                  return SideTitleWidget(
-                    meta: meta,
-                    child: Text(
-                      DateFormat.Md().format(date),
-                      style: _chartAxisLabelStyle,
-                    ),
-                  );
-                }
-              },
-            ),
-          ),
-        ),
-        gridData: FlGridData(
-          show: true,
-          drawVerticalLine: false,
-          horizontalInterval: 24,
-          getDrawingHorizontalLine: (value) {
-            return FlLine(
-              color: Colors.grey.withOpacity(0.3),
-              strokeWidth: 1,
-            );
-          },
-        ),
-        borderData: FlBorderData(
-          show: true,
-          border: Border(
-            left: BorderSide(color: Colors.grey.withOpacity(0.3)),
-            bottom: BorderSide(color: Colors.grey.withOpacity(0.3)),
-          ),
-        ),
+          gridData: FlGridData(show: true, drawVerticalLine: false, horizontalInterval: 24, getDrawingHorizontalLine: (value) => FlLine(color: Colors.grey.withOpacity(0.3), strokeWidth: 1)),
+          borderData: FlBorderData(show: true, border: Border(left: BorderSide(color: Colors.grey.withOpacity(0.3)), bottom: BorderSide(color: Colors.grey.withOpacity(0.3))))
       ),
     );
   }
@@ -430,12 +382,7 @@ class _HeartRateScreenState extends State<HeartRateScreen> {
           children: [
             _buildSegmentedControl(),
             const SizedBox(height: 16),
-            SizedBox(
-                height: 200,
-                child: _isLoading
-                    ? const Center(child: CircularProgressIndicator())
-                    : _buildBarChart()
-            ),
+            SizedBox(height: 200, child: _isLoading ? const Center(child: CircularProgressIndicator()) : _buildBarChart()),
             const SizedBox(height: 20),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceAround,

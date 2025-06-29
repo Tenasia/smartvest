@@ -8,22 +8,18 @@ import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:intl/intl.dart';
 import 'package:smartvest/core/services/gemini_service.dart';
 
-// --- Caching for AI Summary ---
+// (Caching and Style constants remain the same)
 String _cachedPostureSummary = "Generating summary...";
 DateTime? _lastPostureSummaryTimestamp;
-
-// --- Style Constants ---
 const Color _screenBgColor = Color(0xFFF5F5F5);
 const Color _cardBgColor = Colors.white;
 const Color _primaryTextColor = Color(0xFF333333);
 const Color _secondaryTextColor = Color(0xFF757575);
 const Color _postureColor = Color(0xFF007AFF);
 const Color _aiSummaryIconColor = Color(0xFF9B59B6);
-
 final BorderRadius _cardBorderRadius = BorderRadius.circular(12.0);
 const EdgeInsets _cardPadding = EdgeInsets.all(16.0);
 const double _cardElevation = 1.5;
-
 const TextStyle _generalCardTitleStyle = TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: _primaryTextColor);
 const TextStyle _summaryLabelStyle = TextStyle(fontSize: 12, color: _secondaryTextColor);
 const TextStyle _summaryValueStyle = TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: _primaryTextColor);
@@ -32,6 +28,7 @@ const TextStyle _currentUnitStyle = TextStyle(fontSize: 16, color: _secondaryTex
 const TextStyle _currentTimeStyle = TextStyle(fontSize: 12, color: _secondaryTextColor);
 const TextStyle _chartAxisLabelStyle = TextStyle(fontSize: 10, color: _secondaryTextColor);
 const TextStyle _cardTitleStyle = TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: _secondaryTextColor);
+
 
 class PostureScreen extends StatefulWidget {
   const PostureScreen({super.key});
@@ -83,7 +80,6 @@ class _PostureScreenState extends State<PostureScreen> {
 
       dataMap.forEach((key, value) {
         final entry = value as Map<dynamic, dynamic>;
-        // Use epochTime field or fall back to the key (which is also an epoch time in seconds)
         final epochSeconds = entry['epochTime'] as int? ?? int.tryParse(key.toString());
 
         if (epochSeconds != null) {
@@ -121,8 +117,10 @@ class _PostureScreenState extends State<PostureScreen> {
     });
   }
 
-  Future<void> _generateAiSummary() async {
-    if (_lastPostureSummaryTimestamp != null &&
+  // --- vvv MODIFIED THIS FUNCTION vvv ---
+  Future<void> _generateAiSummary({bool forceRefresh = false}) async {
+    // Bypass cache if forcing a refresh
+    if (!forceRefresh && _lastPostureSummaryTimestamp != null &&
         DateTime.now().difference(_lastPostureSummaryTimestamp!) < const Duration(hours: 1)) {
       if (mounted) setState(() => _aiSummary = _cachedPostureSummary);
       return;
@@ -311,6 +309,7 @@ class _PostureScreenState extends State<PostureScreen> {
     );
   }
 
+  // --- vvv MODIFIED THIS WIDGET vvv ---
   Widget _buildSummaryCard(String title, String summary, IconData icon, Color iconColor) {
     return Card(
       elevation: _cardElevation,
@@ -322,9 +321,31 @@ class _PostureScreenState extends State<PostureScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(children: [Icon(icon, color: iconColor, size: 20), const SizedBox(width: 8), Text(title.toUpperCase(), style: _cardTitleStyle)]),
+            Row(
+              children: [
+                Icon(icon, color: iconColor, size: 20),
+                const SizedBox(width: 8),
+                Text(title.toUpperCase(), style: _cardTitleStyle),
+                const Spacer(),
+                SizedBox(
+                  height: 36, // Constrain size
+                  width: 36,
+                  child: IconButton(
+                    padding: EdgeInsets.zero,
+                    icon: const Icon(Icons.refresh, size: 20, color: _secondaryTextColor),
+                    onPressed: () => _generateAiSummary(forceRefresh: true),
+                    tooltip: 'Refresh Summary',
+                  ),
+                ),
+              ],
+            ),
             const SizedBox(height: 12),
-            MarkdownBody(data: summary, styleSheet: MarkdownStyleSheet.fromTheme(Theme.of(context)).copyWith(p: const TextStyle(color: _primaryTextColor))),
+            MarkdownBody(
+              data: summary,
+              styleSheet: MarkdownStyleSheet.fromTheme(Theme.of(context)).copyWith(
+                p: const TextStyle(color: _primaryTextColor),
+              ),
+            ),
           ],
         ),
       ),

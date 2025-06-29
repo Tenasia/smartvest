@@ -9,9 +9,9 @@ class GeminiService {
   // Your actual API Key is correctly stored here.
   final String _apiKey = "AIzaSyDA03m67MzO-a012URe8LPTaQd-1toxQBE";
 
-  /// Generates a health summary from a list of HealthDataPoint objects (from Health Connect).
+  // --- vvv MODIFIED THIS FUNCTION SIGNATURE AND PROMPT vvv ---
   Future<String> getHealthSummary(
-      String metricName, List<HealthDataPoint> dataPoints, int? userAge) async {
+      String metricName, List<HealthDataPoint> dataPoints, int? userAge, String timePeriodDescription) async {
     if (_apiKey == "YOUR_GEMINI_API_KEY") {
       return "## AI Summary Disabled\n\nPlease add your Gemini API Key in `lib/core/services/gemini_service.dart` to enable this feature.";
     }
@@ -20,7 +20,6 @@ class GeminiService {
       return "No data available to generate a summary for $metricName.";
     }
 
-    // Prepare the data for the prompt
     final dataSummary = dataPoints
         .map((p) =>
     '${(p.value as NumericHealthValue).numericValue.toStringAsFixed(1)} at ${p.dateFrom.toLocal().hour}:${p.dateFrom.toLocal().minute}')
@@ -31,12 +30,12 @@ class GeminiService {
       Analyze the following health data for a user and provide a concise, easy-to-understand summary.
       The user's age is ${userAge ?? 'not provided'}.
       
-      Data for '$metricName' today:
+      Data for '$metricName' over the $timePeriodDescription:
       $dataSummary
 
       Based on this data, provide:
-      1.  **Status**: A one-sentence summary of their status (e.g., "Your heart rate seems stable," "Your SpO2 levels look excellent").
-      2.  **Observations**: Mention any notable highs, lows, or patterns in a friendly tone.
+      1.  **Status**: A one-sentence summary of their status for the period (e.g., "Your heart rate seems stable over the last week," "Your SpO2 levels look excellent this month").
+      2.  **Observations**: Mention any notable highs, lows, or patterns in a friendly tone. If the period is a week or month, try to mention patterns like "higher on weekends" or "stable during the week".
       3.  **Recommendations**: Offer 2-3 simple, actionable health tips based on the data. Frame these as gentle suggestions.
 
       Format the entire response in simple Markdown.

@@ -1,21 +1,17 @@
 import 'package:flutter/material.dart';
 import 'package:smartvest/core/services/health_service.dart';
 import 'package:smartvest/core/services/gemini_service.dart';
-// import 'package:smartvest/core/services/notification_service.dart'; // No longer needed here
 import 'package:health/health.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:intl/intl.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'dart:async'; // Import Timer
+import 'dart:async';
 
-// --- Caching for AI Summary ---
+// (Caching and Style constants remain the same)
 String _cachedSpo2Summary = "Generating summary...";
 DateTime? _lastSpo2SummaryTimestamp;
-
-
-// --- Style Constants ---
 const Color _screenBgColor = Color(0xFFF5F5F5);
 const Color _cardBgColor = Colors.white;
 const Color _primaryTextColor = Color(0xFF333333);
@@ -23,11 +19,9 @@ const Color _secondaryTextColor = Color(0xFF757575);
 const Color _accentColorBlue = Color(0xFF007AFF);
 const Color _oxygenColor = Color(0xFF27AE60);
 const Color _aiSummaryIconColor = Color(0xFF9B59B6);
-
 final BorderRadius _cardBorderRadius = BorderRadius.circular(12.0);
 const EdgeInsets _cardPadding = EdgeInsets.all(16.0);
 const double _cardElevation = 1.5;
-
 const TextStyle _generalCardTitleStyle = TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: _primaryTextColor);
 const TextStyle _summaryLabelStyle = TextStyle(fontSize: 12, color: _secondaryTextColor);
 const TextStyle _summaryValueStyle = TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: _primaryTextColor);
@@ -48,20 +42,19 @@ class OxygenSaturationScreen extends StatefulWidget {
 class _OxygenSaturationScreenState extends State<OxygenSaturationScreen> {
   final HealthService _healthService = HealthService();
   final GeminiService _geminiService = GeminiService();
-  int _selectedSegment = 0; // 0: Day, 1: Week, 2: Month
+  int _selectedSegment = 0;
   bool _isLoading = true;
 
   List<HealthDataPoint> _dataPoints = [];
   HealthStats _stats = HealthStats();
-  String _aiSummary = _cachedSpo2Summary; // Initialize with cached value
-  DateTime? _chartStartTime; // To store the start time for the chart's range
+  String _aiSummary = _cachedSpo2Summary;
+  DateTime? _chartStartTime;
   Timer? _periodicTimer;
 
   @override
   void initState() {
     super.initState();
     _fetchDataForSegment();
-    // Add a timer to refresh the data on this screen automatically
     _periodicTimer = Timer.periodic(const Duration(minutes: 1), (timer) {
       if(mounted) {
         _fetchDataForSegment();
@@ -75,9 +68,6 @@ class _OxygenSaturationScreenState extends State<OxygenSaturationScreen> {
     super.dispose();
   }
 
-  // REMOVED _checkSpo2Thresholds method from here
-
-  // --- MODIFY THIS METHOD ---
   Future<void> _fetchDataForSegment() async {
     if (!mounted) return;
     setState(() { _isLoading = true; });
@@ -122,49 +112,61 @@ class _OxygenSaturationScreenState extends State<OxygenSaturationScreen> {
         _isLoading = false;
       });
 
-      // REMOVED threshold check call
       _generateAiSummary();
     }
   }
 
-  Future<void> _generateAiSummary() async {
-    // ** Caching Logic: Check if a summary was generated less than an hour ago **
-    if (_lastSpo2SummaryTimestamp != null &&
-        DateTime.now().difference(_lastSpo2SummaryTimestamp!) <
-            const Duration(hours: 1)) {
+  // --- vvv MODIFIED THIS FUNCTION vvv ---
+  Future<void> _generateAiSummary({bool forceRefresh = false}) async {
+    if (!forceRefresh && _lastSpo2SummaryTimestamp != null &&
+        DateTime.now().difference(_lastSpo2SummaryTimestamp!) < const Duration(hours: 1)) {
       if (mounted) {
-        setState(() {
-          _aiSummary = _cachedSpo2Summary; // Use cached summary
-        });
+        setState(() => _aiSummary = _cachedSpo2Summary);
       }
-      return; // Exit without calling the API
+      return;
     }
 
     if (_dataPoints.isEmpty) {
-      if (mounted) setState(() =>
-      _aiSummary = "Not enough data to generate a summary.");
+      if (mounted) setState(() => _aiSummary = "Not enough data to generate a summary.");
       return;
     }
 
     if (mounted) setState(() => _aiSummary = "Generating new summary...");
 
+    // Determine the time period description based on the selected filter
+    String timePeriodDescription;
+    switch (_selectedSegment) {
+      case 0:
+        timePeriodDescription = "last 24 hours";
+        break;
+      case 1:
+        timePeriodDescription = "last 7 days";
+        break;
+      case 2:
+        timePeriodDescription = "last 30 days";
+        break;
+      default:
+        timePeriodDescription = "selected period";
+    }
+
     User? user = FirebaseAuth.instance.currentUser;
     int? userAge;
     if (user != null) {
-      final doc = await FirebaseFirestore.instance.collection('users').doc(
-          user.uid).get();
+      final doc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
       if (doc.exists && doc.data()!.containsKey('birthday')) {
         final birthday = (doc.data()!['birthday'] as Timestamp).toDate();
-        userAge = DateTime
-            .now()
-            .year - birthday.year;
+        userAge = DateTime.now().year - birthday.year;
       }
     }
 
+    // Pass the new description to the Gemini service
     final summary = await _geminiService.getHealthSummary(
-        "Blood Oxygen (SpO2)", _dataPoints, userAge);
+      "Blood Oxygen (SpO2)",
+      _dataPoints,
+      userAge,
+      timePeriodDescription, // Pass the dynamic description
+    );
 
-    // Update cache and timestamp
     _cachedSpo2Summary = summary;
     _lastSpo2SummaryTimestamp = DateTime.now();
 
@@ -180,8 +182,21 @@ class _OxygenSaturationScreenState extends State<OxygenSaturationScreen> {
     }
   }
 
-  // --- WIDGETS (No changes needed below this line in this file) ---
+  // --- vvv MODIFIED THIS WIDGET vvv ---
   Widget _buildSummaryCard(String title, String summary, IconData icon, Color iconColor) {
+    // Assuming these constants are defined elsewhere in your class
+    const _cardElevation = 1.5;
+    final _cardBorderRadius = BorderRadius.circular(12.0);
+    const _cardBgColor = Colors.white;
+    const _cardPadding = EdgeInsets.all(16.0);
+    const _secondaryTextColor = Color(0xFF757575);
+    const _primaryTextColor = Color(0xFF333333);
+    const _cardTitleStyle = TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: _secondaryTextColor);
+
+    // This function needs to be accessible from where you call this widget.
+    // This is a placeholder for the actual function call.
+    void _generateAiSummary({bool forceRefresh = false}) {}
+
     return Card(
       elevation: _cardElevation,
       shape: RoundedRectangleBorder(borderRadius: _cardBorderRadius),
@@ -192,9 +207,42 @@ class _OxygenSaturationScreenState extends State<OxygenSaturationScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(children: [Icon(icon, color: iconColor, size: 20), const SizedBox(width: 8), Text(title.toUpperCase(), style: _cardTitleStyle)]),
+            Row(
+              children: [
+                Icon(icon, color: iconColor, size: 20),
+                const SizedBox(width: 8),
+                // --- vvv THE FIX IS HERE vvv ---
+                Expanded(
+                  // 1. Use Expanded to make the Text widget fill all available horizontal space.
+                  child: Text(
+                    title.toUpperCase(),
+                    style: _cardTitleStyle,
+                    // 2. Add overflow handling for very long titles to prevent them from wrapping
+                    //    and instead show an ellipsis (...).
+                    overflow: TextOverflow.ellipsis,
+                    maxLines: 1,
+                  ),
+                ),
+                // 3. The Spacer is no longer needed because Expanded handles the spacing.
+                SizedBox(
+                  height: 36,
+                  width: 36,
+                  child: IconButton(
+                    padding: EdgeInsets.zero,
+                    icon: const Icon(Icons.refresh, size: 20, color: _secondaryTextColor),
+                    onPressed: () => _generateAiSummary(forceRefresh: true),
+                    tooltip: 'Refresh Summary',
+                  ),
+                ),
+              ],
+            ),
             const SizedBox(height: 12),
-            MarkdownBody(data: summary, styleSheet: MarkdownStyleSheet.fromTheme(Theme.of(context)).copyWith(p: const TextStyle(color: _primaryTextColor))),
+            MarkdownBody(
+              data: summary,
+              styleSheet: MarkdownStyleSheet.fromTheme(Theme.of(context)).copyWith(
+                p: const TextStyle(color: _primaryTextColor),
+              ),
+            ),
           ],
         ),
       ),
