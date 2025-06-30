@@ -1,6 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:health/health.dart';
-import 'package:smartvest/core/services/health_service.dart';
 import 'package:smartvest/core/services/gemini_service.dart';
 import 'package:table_calendar/table_calendar.dart';
 import 'package:intl/intl.dart';
@@ -8,8 +6,9 @@ import 'package:firebase_database/firebase_database.dart';
 import 'dart:async';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
-// --- DESIGN SYSTEM (Using the established system for consistency) ---
+// --- DESIGN SYSTEM ---
 class AppColors {
   static const Color background = Color(0xFFF7F8FC);
   static const Color cardBackground = Colors.white;
@@ -36,27 +35,36 @@ class AppTextStyles {
   static final TextStyle bodyText = GoogleFonts.poppins(
       fontSize: 14, fontWeight: FontWeight.normal, color: AppColors.primaryText);
 }
-// --- END OF DESIGN SYSTEM ---
 
+// --- DATA MODELS ---
+class FirebaseHealthStats {
+  final double? min;
+  final double? max;
+  final double? avg;
 
-// --- DATA MODELS (Unchanged) ---
+  FirebaseHealthStats({this.min, this.max, this.avg});
+}
+
 class PostureStats {
   final double? minRulaScore;
   final double? maxRulaScore;
   final double? avgRulaScore;
   PostureStats({this.minRulaScore, this.maxRulaScore, this.avgRulaScore});
 }
+
 class StressStats {
   final double? minGsr;
   final double? maxGsr;
   final double? avgGsr;
   StressStats({this.minGsr, this.maxGsr, this.avgGsr});
 }
+
 class DailyHealthSummary {
-  final HealthStats heartRateStats;
-  final HealthStats spo2Stats;
+  final FirebaseHealthStats heartRateStats;
+  final FirebaseHealthStats spo2Stats;
   final PostureStats postureStats;
   final StressStats stressStats;
+
   DailyHealthSummary({
     required this.heartRateStats,
     required this.spo2Stats,
@@ -64,7 +72,6 @@ class DailyHealthSummary {
     required this.stressStats,
   });
 }
-
 
 class CalendarScreen extends StatefulWidget {
   const CalendarScreen({super.key});
@@ -74,9 +81,7 @@ class CalendarScreen extends StatefulWidget {
 }
 
 class _CalendarScreenState extends State<CalendarScreen> {
-  // --- MODIFIED: Added GeminiService instance and new state variables ---
-  final HealthService _healthService = HealthService();
-  final DatabaseReference _firebaseDbRef = FirebaseDatabase.instance.ref('healthMonitor/data');
+  final DatabaseReference _firebaseDbRef = FirebaseDatabase.instance.ref();
   final GeminiService _geminiService = GeminiService();
 
   final Map<DateTime, DailyHealthSummary> _healthDataMap = {};
@@ -94,6 +99,8 @@ class _CalendarScreenState extends State<CalendarScreen> {
   @override
   void initState() {
     super.initState();
+    // Start at June 2025 where the data is located
+    _focusedDay = DateTime(2025, 6, 30);
     _selectedDay = _focusedDay;
     _fetchDataForMonth(_focusedDay);
   }
@@ -151,80 +158,100 @@ class _CalendarScreenState extends State<CalendarScreen> {
   }
 
   Future<void> _fetchDataForMonth(DateTime month) async {
-    if (!mounted) return;
+    final user = FirebaseAuth.instance.currentUser;
+    if (!mounted || user == null) return;
+
     setState(() { _isLoading = true; });
 
     final firstDayOfMonth = DateTime(month.year, month.month, 1);
     final lastDayOfMonth = DateTime(month.year, month.month + 1, 0, 23, 59, 59);
 
-    final results = await Future.wait([
-      _healthService.getHealthData(firstDayOfMonth, lastDayOfMonth, HealthDataType.HEART_RATE),
-      _healthService.getHealthData(firstDayOfMonth, lastDayOfMonth, HealthDataType.BLOOD_OXYGEN),
-      _firebaseDbRef
-          .orderByKey()
-          .startAt(firstDayOfMonth.millisecondsSinceEpoch.toString())
-          .endAt(lastDayOfMonth.millisecondsSinceEpoch.toString())
-          .once(),
-    ]);
+    print('Fetching data for month: ${DateFormat.yMMM().format(month)}');
+    print('Date range: ${firstDayOfMonth.millisecondsSinceEpoch ~/ 1000} to ${lastDayOfMonth.millisecondsSinceEpoch ~/ 1000}');
 
-    final heartRateData = results[0] as List<HealthDataPoint>;
-    final spo2Data = results[1] as List<HealthDataPoint>;
+    try {
+      // First, let's get ALL data without filtering to see what's available
+      final snapshot = await _firebaseDbRef
+          .child('users/${user.uid}/healthData')
+          .get();
 
-    final Map<DateTime, List<HealthDataPoint>> dailyHrData = {};
-    for (var p in heartRateData) {
-      final day = DateTime.utc(p.dateFrom.year, p.dateFrom.month, p.dateFrom.day);
-      dailyHrData.putIfAbsent(day, () => []).add(p);
-    }
-    final Map<DateTime, List<HealthDataPoint>> dailySpo2Data = {};
-    for (var p in spo2Data) {
-      final day = DateTime.utc(p.dateFrom.year, p.dateFrom.month, p.dateFrom.day);
-      dailySpo2Data.putIfAbsent(day, () => []).add(p);
-    }
+      final Map<DateTime, List<Map<dynamic, dynamic>>> dailyFirebaseData = {};
 
-    final firebaseSnapshot = results[2] as DatabaseEvent;
-    final Map<DateTime, List<Map<dynamic, dynamic>>> dailyFirebaseData = {};
-    if (firebaseSnapshot.snapshot.value != null) {
-      final firebaseData = firebaseSnapshot.snapshot.value as Map<dynamic, dynamic>;
-      firebaseData.forEach((key, value) {
-        final entry = value as Map<dynamic, dynamic>;
-        final epochSeconds = int.tryParse(key);
-        if (epochSeconds != null) {
-          final timestamp = DateTime.fromMillisecondsSinceEpoch(epochSeconds * 1000);
-          final day = DateTime.utc(timestamp.year, timestamp.month, timestamp.day);
-          dailyFirebaseData.putIfAbsent(day, () => []).add(entry);
-        }
+      if (snapshot.exists) {
+        final firebaseData = snapshot.value as Map<dynamic, dynamic>;
+        print('Found ${firebaseData.length} total entries');
+
+        firebaseData.forEach((key, value) {
+          final entry = value as Map<dynamic, dynamic>;
+          // Try both field name variations for compatibility
+          final epochTime = entry['epoch_time'] as int? ?? entry['epochTime'] as int?;
+          if (epochTime != null) {
+            final timestamp = DateTime.fromMillisecondsSinceEpoch(epochTime * 1000);
+            final day = DateTime.utc(timestamp.year, timestamp.month, timestamp.day);
+
+            print('Entry: $key, epoch: $epochTime, date: ${DateFormat.yMMMd().format(timestamp)}');
+
+            // Only include data for the current month we're viewing
+            if (timestamp.year == month.year && timestamp.month == month.month) {
+              dailyFirebaseData.putIfAbsent(day, () => []).add(entry);
+              print('Added entry for ${DateFormat.yMMMd().format(day)}');
+            }
+          }
+        });
+      } else {
+        print('No data found in snapshot');
+      }
+
+      print('Processed ${dailyFirebaseData.length} days of data for ${DateFormat.yMMM().format(month)}');
+      dailyFirebaseData.forEach((day, entries) {
+        print('Day: ${DateFormat.yMMMd().format(day)}, entries: ${entries.length}');
       });
-    }
 
-    final Set<DateTime> allDays = {...dailyHrData.keys, ...dailySpo2Data.keys, ...dailyFirebaseData.keys};
-    for (var day in allDays) {
-      _healthDataMap[day] = DailyHealthSummary(
-        heartRateStats: _calculateHealthConnectStats(dailyHrData[day] ?? []),
-        spo2Stats: _calculateHealthConnectStats(dailySpo2Data[day] ?? []),
-        postureStats: _calculatePostureStats(dailyFirebaseData[day] ?? []),
-        stressStats: _calculateStressStats(dailyFirebaseData[day] ?? []),
-      );
-    }
+      // Clear existing data for this month and add new data
+      _healthDataMap.removeWhere((key, value) =>
+      key.year == month.year && key.month == month.month);
 
-    if (mounted) {
-      setState(() {
-        _isLoading = false;
-        _updateSelectedDaySummary(_selectedDay!);
-      });
+      final Set<DateTime> allDays = dailyFirebaseData.keys.toSet();
+      for (var day in allDays) {
+        _healthDataMap[day] = DailyHealthSummary(
+          heartRateStats: _calculateVitalStats(dailyFirebaseData[day] ?? [], 'heart_rate'),
+          spo2Stats: _calculateVitalStats(dailyFirebaseData[day] ?? [], 'oxygen_saturation'),
+          postureStats: _calculatePostureStats(dailyFirebaseData[day] ?? []),
+          stressStats: _calculateStressStats(dailyFirebaseData[day] ?? []),
+        );
+        print('Created summary for ${DateFormat.yMMMd().format(day)}');
+      }
+
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+          _updateSelectedDaySummary(_selectedDay!);
+        });
+        print('Updated UI with ${_healthDataMap.length} total days of data');
+      }
+    } catch (e) {
+      print('Error fetching calendar data: $e');
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
     }
   }
 
-  HealthStats _calculateHealthConnectStats(List<HealthDataPoint> points) {
-    if (points.isEmpty) return HealthStats();
+  FirebaseHealthStats _calculateVitalStats(List<Map<dynamic, dynamic>> entries, String vitalType) {
+    if (entries.isEmpty) return FirebaseHealthStats();
     double? min, max;
     double sum = 0;
-    for (var p in points) {
-      final value = (p.value as NumericHealthValue).numericValue.toDouble();
-      sum += value;
-      if (min == null || value < min) min = value;
-      if (max == null || value > max) max = value;
+    int count = 0;
+    for (var e in entries) {
+      final value = e['vitals']?[vitalType]?.toDouble();
+      if (value != null && value > 0) {
+        sum += value;
+        count++;
+        if (min == null || value < min) min = value;
+        if (max == null || value > max) max = value;
+      }
     }
-    return HealthStats(min: min, max: max, avg: sum / points.length);
+    return count > 0 ? FirebaseHealthStats(min: min, max: max, avg: sum / count) : FirebaseHealthStats();
   }
 
   PostureStats _calculatePostureStats(List<Map<dynamic, dynamic>> entries) {
@@ -233,8 +260,8 @@ class _CalendarScreenState extends State<CalendarScreen> {
     double sum = 0;
     int count = 0;
     for (var e in entries) {
-      final value = e['posture']?['rulaScore']?.toDouble();
-      if (value != null) {
+      final value = e['posture']?['rula_score']?.toDouble();
+      if (value != null && value > 0) {
         sum += value;
         count++;
         if (min == null || value < min) min = value;
@@ -250,8 +277,8 @@ class _CalendarScreenState extends State<CalendarScreen> {
     double sum = 0;
     int count = 0;
     for (var e in entries) {
-      final value = e['stress']?['gsrReading']?.toDouble();
-      if (value != null) {
+      final value = e['stress']?['gsr_reading']?.toDouble();
+      if (value != null && value >= 0) { // Changed from > 0 to >= 0 to include 0 values
         sum += value;
         count++;
         if (min == null || value < min) min = value;

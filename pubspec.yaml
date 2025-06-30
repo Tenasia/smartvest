@@ -42,11 +42,11 @@ dev_dependencies:
   flutter_lints: ^4.0.0
   flutter_launcher_icons: ^0.14.4
   shared_preferences: ^2.5.3
+  google_fonts: ^6.2.1
 flutter:
   uses-material-design: true
   assets:
     - assets/
-    - assets/icons/
 
 flutter_launcher_icons:
   android: "launcher_icon"

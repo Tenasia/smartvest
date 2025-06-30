@@ -5,14 +5,12 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:health/health.dart';
 import 'package:flutter_staggered_grid_view/flutter_staggered_grid_view.dart';
 import 'package:intl/intl.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 
 // Assuming these are defined in your project
 import 'package:smartvest/config/app_routes.dart';
-import 'package:smartvest/core/services/health_service.dart';
 import 'package:smartvest/core/services/gemini_service.dart';
 
 // --- [1] CLEAN & MODERN DESIGN SYSTEM ---
@@ -56,6 +54,23 @@ class AppTextStyles {
   );
 }
 
+// Custom health data stats class for Firebase data
+class HealthDataStats {
+  final double? min;
+  final double? max;
+  final double? avg;
+  final double? latest;
+  final int count;
+
+  HealthDataStats({
+    this.min,
+    this.max,
+    this.avg,
+    this.latest,
+    this.count = 0,
+  });
+}
+
 // --- MAIN WIDGET ---
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -67,16 +82,13 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
-  final HealthService _healthService = HealthService();
   final GeminiService _geminiService = GeminiService();
 
   User? _user;
   Map<String, dynamic>? _userData;
 
-  HealthStats? _heartRateStats;
-  List<HealthDataPoint> _heartRateDataPoints = [];
-  HealthStats? _spo2Stats;
-  List<HealthDataPoint> _spo2DataPoints = [];
+  HealthDataStats? _heartRateStats;
+  HealthDataStats? _spo2Stats;
 
   StreamSubscription? _healthMonitorSubscription;
   Map<dynamic, dynamic>? _latestHealthData;
@@ -103,7 +115,7 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _generateGlobalAiSummary({bool forceRefresh = false}) async {
     if (_isGeneratingSummary) return;
 
-    if (_recentFirebaseData.isEmpty && _heartRateDataPoints.isEmpty && _spo2DataPoints.isEmpty) {
+    if (_recentFirebaseData.isEmpty) {
       if (mounted) setState(() => _globalAiSummary = "Not enough data to generate a summary for today.");
       return;
     }
@@ -125,8 +137,8 @@ class _HomeScreenState extends State<HomeScreen> {
         promptData.writeln("- Blood Oxygen: Average of ${_spo2Stats!.avg!.toStringAsFixed(1)}%, Min of ${_spo2Stats!.min?.toStringAsFixed(1)}, Max of ${_spo2Stats!.max?.toStringAsFixed(1)}.");
       }
       if (_recentFirebaseData.isNotEmpty) {
-        final postureScores = _recentFirebaseData.where((d) => d['posture'] != null).map((d) => d['posture']['rulaScore']).toList();
-        final stressScores = _recentFirebaseData.where((d) => d['stress'] != null).map((d) => d['stress']['gsrReading']).toList();
+        final postureScores = _recentFirebaseData.where((d) => d['posture'] != null).map((d) => d['posture']['rula_score']).toList();
+        final stressScores = _recentFirebaseData.where((d) => d['stress'] != null).map((d) => d['stress']['gsr_reading']).toList();
         if (postureScores.isNotEmpty) {
           promptData.writeln("- Posture: Recorded ${postureScores.length} posture readings. The RULA scores ranged from ${postureScores.reduce((a, b) => a < b ? a : b)} (best) to ${postureScores.reduce((a, b) => a > b ? a : b)} (worst).");
         }
@@ -164,12 +176,6 @@ class _HomeScreenState extends State<HomeScreen> {
     setState(() { _isLoading = true; _errorMessage = ''; });
     await _fetchUserData();
     _initFirebaseRealtimeListener();
-    bool permissionsGranted = await _healthService.requestPermissions();
-    if (permissionsGranted) {
-      await _fetchHealthData();
-    } else {
-      if (mounted) setState(() => _errorMessage = 'Health permissions not granted.');
-    }
     if (mounted) setState(() => _isLoading = false);
   }
 
@@ -186,28 +192,35 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _initFirebaseRealtimeListener() {
-    final databaseReference = FirebaseDatabase.instance.ref('healthMonitor/data');
+    if (_user == null) return;
+
+    final databaseReference = FirebaseDatabase.instance.ref('users/${_user!.uid}/healthData');
     _healthMonitorSubscription?.cancel();
-    _healthMonitorSubscription = databaseReference.limitToLast(50).onValue.listen((event) {
+    _healthMonitorSubscription = databaseReference.limitToLast(100).onValue.listen((event) {
       if (event.snapshot.value != null && mounted) {
         final dataMap = event.snapshot.value as Map<dynamic, dynamic>;
         final List<Map<dynamic, dynamic>> tempList = [];
 
         dataMap.forEach((key, value) {
           final entry = value as Map<dynamic, dynamic>;
-          final epochSeconds = entry['epochTime'] as int? ?? int.tryParse(key.toString());
+          final epochSeconds = entry['epoch_time'] as int? ?? int.tryParse(key.toString());
           if (epochSeconds != null) {
-            entry['parsedTimestamp'] = DateTime.fromMillisecondsSinceEpoch(epochSeconds * 1000);
-            tempList.add(entry);
+            try {
+              entry['parsedTimestamp'] = DateTime.fromMillisecondsSinceEpoch(epochSeconds * 1000);
+              tempList.add(entry);
+            } catch (e) {
+              print('Error parsing timestamp for key $key: $e');
+            }
           }
         });
 
-        tempList.sort((a, b) => a['parsedTimestamp'].compareTo(b['parsedTimestamp']));
+        tempList.sort((a, b) => (a['parsedTimestamp'] as DateTime).compareTo(b['parsedTimestamp'] as DateTime));
 
         if (tempList.isNotEmpty) {
           setState(() {
             _latestHealthData = tempList.last;
             _recentFirebaseData = tempList;
+            _calculateHealthStats();
           });
         }
       }
@@ -216,33 +229,60 @@ class _HomeScreenState extends State<HomeScreen> {
     });
   }
 
-  Future<void> _fetchHealthData() async {
-    try {
-      final now = DateTime.now();
-      final todayStart = DateTime(now.year, now.month, now.day);
-      final hrStats = await _healthService.getStatsForToday(HealthDataType.HEART_RATE);
-      final hrPoints = await _healthService.getHealthData(todayStart, now, HealthDataType.HEART_RATE);
-      final spo2Stats = await _healthService.getStatsForToday(HealthDataType.BLOOD_OXYGEN);
-      final spo2Points = await _healthService.getHealthData(todayStart, now, HealthDataType.BLOOD_OXYGEN);
-      if (mounted) {
-        setState(() {
-          _heartRateStats = hrStats;
-          _heartRateDataPoints = hrPoints;
-          _spo2Stats = spo2Stats;
-          _spo2DataPoints = spo2Points;
-        });
-      }
-    } catch (e) {
-      if (mounted) setState(() => _errorMessage = 'Failed to load health data.');
+  void _calculateHealthStats() {
+    final now = DateTime.now();
+    final oneHourAgo = now.subtract(const Duration(hours: 1));
+
+    // Filter last hour's data
+    final lastHourData = _recentFirebaseData.where((entry) {
+      final timestamp = entry['parsedTimestamp'] as DateTime?;
+      return timestamp != null &&
+          timestamp.isAfter(oneHourAgo) &&
+          timestamp.isBefore(now);
+    }).toList();
+
+    // Calculate heart rate stats
+    final heartRateValues = lastHourData
+        .where((entry) => entry['vitals']?['heart_rate'] != null)
+        .map((entry) => (entry['vitals']['heart_rate'] as num).toDouble())
+        .where((value) => value > 0)
+        .toList();
+
+    if (heartRateValues.isNotEmpty) {
+      _heartRateStats = HealthDataStats(
+        min: heartRateValues.reduce((a, b) => a < b ? a : b),
+        max: heartRateValues.reduce((a, b) => a > b ? a : b),
+        avg: heartRateValues.reduce((a, b) => a + b) / heartRateValues.length,
+        latest: heartRateValues.last,
+        count: heartRateValues.length,
+      );
+    }
+
+    // Calculate SpO2 stats
+    final spo2Values = lastHourData
+        .where((entry) => entry['vitals']?['oxygen_saturation'] != null)
+        .map((entry) => (entry['vitals']['oxygen_saturation'] as num).toDouble())
+        .where((value) => value > 0)
+        .toList();
+
+    if (spo2Values.isNotEmpty) {
+      _spo2Stats = HealthDataStats(
+        min: spo2Values.reduce((a, b) => a < b ? a : b),
+        max: spo2Values.reduce((a, b) => a > b ? a : b),
+        avg: spo2Values.reduce((a, b) => a + b) / spo2Values.length,
+        latest: spo2Values.last,
+        count: spo2Values.length,
+      );
     }
   }
 
-  bool _isDataFromToday(Map<dynamic, dynamic>? data) {
+  bool _isDataFromLastHour(Map<dynamic, dynamic>? data) {
     if (data == null) return false;
     final timestamp = data['parsedTimestamp'];
     if (timestamp == null || timestamp is! DateTime) return false;
     final now = DateTime.now();
-    return timestamp.year == now.year && timestamp.month == now.month && timestamp.day == now.day;
+    final oneHourAgo = now.subtract(const Duration(hours: 1));
+    return timestamp.isAfter(oneHourAgo) && timestamp.isBefore(now);
   }
 
   @override
@@ -291,16 +331,6 @@ class _HomeScreenState extends State<HomeScreen> {
         StaggeredGridTile.count(
           crossAxisCellCount: 1,
           mainAxisCellCount: 1.3,
-          child: _buildHeartRateCard(),
-        ),
-        StaggeredGridTile.count(
-          crossAxisCellCount: 1,
-          mainAxisCellCount: 1.3,
-          child: _buildSpo2Card(),
-        ),
-        StaggeredGridTile.count(
-          crossAxisCellCount: 1,
-          mainAxisCellCount: 1.3,
           child: _buildPostureCard(),
         ),
         StaggeredGridTile.count(
@@ -308,39 +338,17 @@ class _HomeScreenState extends State<HomeScreen> {
           mainAxisCellCount: 1.3,
           child: _buildStressCard(),
         ),
+        StaggeredGridTile.count(
+          crossAxisCellCount: 1,
+          mainAxisCellCount: 1.3,
+          child: _buildHeartRateCard(),
+        ),
+        StaggeredGridTile.count(
+          crossAxisCellCount: 1,
+          mainAxisCellCount: 1.3,
+          child: _buildSpo2Card(),
+        ),
       ],
-    );
-  }
-
-  Widget _buildSimpleBarChart(List<HealthDataPoint> data, Color barColor) {
-    if (data.isEmpty) {
-      return Center(child: Text("No chart data.", style: AppTextStyles.secondaryInfo));
-    }
-    final recentData = data.length > 24 ? data.sublist(data.length - 24) : data;
-
-    return BarChart(
-      BarChartData(
-        alignment: BarChartAlignment.spaceAround,
-        titlesData: const FlTitlesData(show: false),
-        gridData: const FlGridData(show: false),
-        borderData: FlBorderData(show: false),
-        barGroups: recentData.asMap().entries.map((entry) {
-          final index = entry.key;
-          final point = entry.value;
-          final value = (point.value as NumericHealthValue).numericValue.toDouble();
-          return BarChartGroupData(
-            x: index,
-            barRods: [
-              BarChartRodData(
-                toY: value,
-                color: barColor,
-                width: 5,
-                borderRadius: const BorderRadius.all(Radius.circular(4)),
-              ),
-            ],
-          );
-        }).toList(),
-      ),
     );
   }
 
@@ -349,7 +357,22 @@ class _HomeScreenState extends State<HomeScreen> {
       return Center(child: Text("No chart data.", style: AppTextStyles.secondaryInfo));
     }
 
-    final spots = data.map((entry) {
+    // Filter data to only show last hour
+    final now = DateTime.now();
+    final oneHourAgo = now.subtract(const Duration(hours: 1));
+
+    final lastHourData = data.where((entry) {
+      final timestamp = entry['parsedTimestamp'] as DateTime?;
+      return timestamp != null &&
+          timestamp.isAfter(oneHourAgo) &&
+          timestamp.isBefore(now);
+    }).toList();
+
+    if (lastHourData.isEmpty) {
+      return Center(child: Text("No chart data for last hour.", style: AppTextStyles.secondaryInfo));
+    }
+
+    final spots = lastHourData.map((entry) {
       final value = entry[dataKey]?[nestedKey]?.toDouble() ?? 0.0;
       final timestamp = (entry['parsedTimestamp'] as DateTime).millisecondsSinceEpoch.toDouble();
       return FlSpot(timestamp, value);
@@ -452,7 +475,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Widget _buildHeartRateCard() {
     final currentBpm = _heartRateStats?.latest != null
-        ? (_heartRateStats!.latest!.value as NumericHealthValue).numericValue.toStringAsFixed(0)
+        ? _heartRateStats!.latest!.toStringAsFixed(0)
         : "--";
 
     return HealthMetricCard(
@@ -473,11 +496,16 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
             ),
           ),
-          Text('Just now', style: AppTextStyles.secondaryInfo),
+          Text('Live', style: AppTextStyles.secondaryInfo),
           Expanded(
             child: Padding(
               padding: const EdgeInsets.only(top: 8.0),
-              child: _buildSimpleBarChart(_heartRateDataPoints, AppColors.heartRateColor),
+              child: _buildFirebaseLineChart(
+                _recentFirebaseData,
+                'vitals',
+                'heart_rate',
+                AppColors.heartRateColor,
+              ),
             ),
           ),
         ],
@@ -487,7 +515,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Widget _buildSpo2Card() {
     final currentSpo2 = _spo2Stats?.latest != null
-        ? (_spo2Stats!.latest!.value as NumericHealthValue).numericValue.toStringAsFixed(0)
+        ? _spo2Stats!.latest!.toStringAsFixed(0)
         : "--";
 
     return HealthMetricCard(
@@ -508,11 +536,16 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
             ),
           ),
-          Text('Just now', style: AppTextStyles.secondaryInfo),
+          Text('Live', style: AppTextStyles.secondaryInfo),
           Expanded(
             child: Padding(
               padding: const EdgeInsets.only(top: 8.0),
-              child: _buildSimpleBarChart(_spo2DataPoints, AppColors.oxygenColor),
+              child: _buildFirebaseLineChart(
+                _recentFirebaseData,
+                'vitals',
+                'oxygen_saturation',
+                AppColors.oxygenColor,
+              ),
             ),
           ),
         ],
@@ -521,9 +554,9 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildPostureCard() {
-    final bool hasDataForToday = _isDataFromToday(_latestHealthData);
-    final postureData = hasDataForToday ? _latestHealthData!['posture'] : null;
-    final String status = postureData?['rulaAssessment']?.replaceAll('_', ' ') ?? 'No Data';
+    final bool hasDataFromLastHour = _isDataFromLastHour(_latestHealthData);
+    final postureData = hasDataFromLastHour ? _latestHealthData!['posture'] : null;
+    final String status = postureData?['rula_assessment']?.replaceAll('_', ' ') ?? 'No Data';
 
     return HealthMetricCard(
       onTap: () => Navigator.pushNamed(context, AppRoutes.postureScreen),
@@ -545,7 +578,7 @@ class _HomeScreenState extends State<HomeScreen> {
             child: _buildFirebaseLineChart(
               _recentFirebaseData,
               'posture',
-              'rulaScore',
+              'rula_score',
               AppColors.postureColor,
             ),
           ),
@@ -555,9 +588,9 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildStressCard() {
-    final bool hasDataForToday = _isDataFromToday(_latestHealthData);
-    final stressData = hasDataForToday ? _latestHealthData!['stress'] : null;
-    final String level = stressData?['stressLevel']?.replaceAll('_', ' ') ?? 'No Data';
+    final bool hasDataFromLastHour = _isDataFromLastHour(_latestHealthData);
+    final stressData = hasDataFromLastHour ? _latestHealthData!['stress'] : null;
+    final String level = stressData?['stress_level']?.replaceAll('_', ' ') ?? 'No Data';
 
     return HealthMetricCard(
       onTap: () => Navigator.pushNamed(context, AppRoutes.stressLevelScreen),
@@ -579,7 +612,7 @@ class _HomeScreenState extends State<HomeScreen> {
             child: _buildFirebaseLineChart(
               _recentFirebaseData,
               'stress',
-              'gsrReading',
+              'gsr_reading',
               AppColors.stressColor,
             ),
           ),
