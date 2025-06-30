@@ -47,7 +47,7 @@ class _HeightAndWeightScreenState extends State<HeightAndWeightScreen> {
   bool _isLoading = false;
 
   final List<int> _heightCmOptions = List.generate(200, (i) => 100 + i); // 100cm to 299cm
-  final List<int> _weightKgOptions = List.generate(1700, (i) => 30.0 + i * 0.1) as List<int>; // 30kg to 199.9kg
+  final List<double> _weightKgOptions = List.generate(1700, (i) => 30.0 + i * 0.1);
   final List<int> _heightInchOptions = List.generate(60, (i) => 40 + i); // 40in to 99in
   final List<int> _weightLbsOptions = List.generate(371, (i) => 60 + i); // 60lbs to 430lbs
 
