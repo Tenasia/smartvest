@@ -1,12 +1,11 @@
+import 'dart:async';
+import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:smartvest/core/services/gemini_service.dart';
 import 'package:table_calendar/table_calendar.dart';
 import 'package:intl/intl.dart';
-import 'package:firebase_database/firebase_database.dart';
-import 'dart:async';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 
 // --- DESIGN SYSTEM ---
 class AppColors {
@@ -37,12 +36,12 @@ class AppTextStyles {
 }
 
 // --- DATA MODELS ---
-class FirebaseHealthStats {
+class HealthStats {
   final double? min;
   final double? max;
   final double? avg;
 
-  FirebaseHealthStats({this.min, this.max, this.avg});
+  HealthStats({this.min, this.max, this.avg});
 }
 
 class PostureStats {
@@ -60,8 +59,8 @@ class StressStats {
 }
 
 class DailyHealthSummary {
-  final FirebaseHealthStats heartRateStats;
-  final FirebaseHealthStats spo2Stats;
+  final HealthStats heartRateStats;
+  final HealthStats spo2Stats;
   final PostureStats postureStats;
   final StressStats stressStats;
 
@@ -81,8 +80,8 @@ class CalendarScreen extends StatefulWidget {
 }
 
 class _CalendarScreenState extends State<CalendarScreen> {
-  final DatabaseReference _firebaseDbRef = FirebaseDatabase.instance.ref();
   final GeminiService _geminiService = GeminiService();
+  final Random _random = Random();
 
   final Map<DateTime, DailyHealthSummary> _healthDataMap = {};
   final Map<DateTime, String> _summaryCache = {};
@@ -99,10 +98,10 @@ class _CalendarScreenState extends State<CalendarScreen> {
   @override
   void initState() {
     super.initState();
-    // Start at June 2025 where the data is located
-    _focusedDay = DateTime(2025, 6, 30);
+    _focusedDay = DateTime.utc(2025, 6, 1); // Start at June 1st, 2025
     _selectedDay = _focusedDay;
-    _fetchDataForMonth(_focusedDay);
+    _generateSimulatedCalendarData();
+    _updateSelectedDaySummary(_selectedDay!);
   }
 
   Future<void> _generateDailySummary({bool forceRefresh = false}) async {
@@ -157,135 +156,53 @@ class _CalendarScreenState extends State<CalendarScreen> {
     }
   }
 
+  void _generateSimulatedCalendarData() {
+    final DateTime startDate = DateTime.utc(2025, 6, 1);
+    final DateTime endDate = DateTime.utc(2025, 7, 25); // End of July
+
+    _healthDataMap.clear(); // Clear existing data
+
+    for (DateTime day = startDate; day.isBefore(endDate.add(const Duration(days: 1))); day = day.add(const Duration(days: 1))) {
+      // Simulate some days with no data
+      if (_random.nextDouble() < 0.2) { // 20% chance of no data for the day
+        continue;
+      }
+
+      // Simulate data for each metric
+      final heartRateAvg = 70 + _random.nextDouble() * 20; // 70-90
+      final heartRateMin = heartRateAvg - (_random.nextDouble() * 10);
+      final heartRateMax = heartRateAvg + (_random.nextDouble() * 10);
+
+      final spo2Avg = 96 + _random.nextDouble() * 2; // 96-98
+      final spo2Min = spo2Avg - (_random.nextDouble() * 1);
+      final spo2Max = spo2Avg + (_random.nextDouble() * 1);
+
+      final postureAvg = 3 + _random.nextDouble() * 2; // 3-5
+      final postureMin = postureAvg - (_random.nextDouble() * 1);
+      final postureMax = postureAvg + (_random.nextDouble() * 1);
+
+      final stressAvg = 400 + _random.nextDouble() * 200; // 400-600
+      final stressMin = stressAvg - (_random.nextDouble() * 100);
+      final stressMax = stressAvg + (_random.nextDouble() * 100);
+
+      _healthDataMap[day] = DailyHealthSummary(
+        heartRateStats: HealthStats(min: heartRateMin, max: heartRateMax, avg: heartRateAvg),
+        spo2Stats: HealthStats(min: spo2Min, max: spo2Max, avg: spo2Avg),
+        postureStats: PostureStats(minRulaScore: postureMin, maxRulaScore: postureMax, avgRulaScore: postureAvg),
+        stressStats: StressStats(minGsr: stressMin, maxGsr: stressMax, avgGsr: stressAvg),
+      );
+    }
+  }
+
   Future<void> _fetchDataForMonth(DateTime month) async {
-    final user = FirebaseAuth.instance.currentUser;
-    if (!mounted || user == null) return;
-
-    setState(() { _isLoading = true; });
-
-    final firstDayOfMonth = DateTime(month.year, month.month, 1);
-    final lastDayOfMonth = DateTime(month.year, month.month + 1, 0, 23, 59, 59);
-
-    print('Fetching data for month: ${DateFormat.yMMM().format(month)}');
-    print('Date range: ${firstDayOfMonth.millisecondsSinceEpoch ~/ 1000} to ${lastDayOfMonth.millisecondsSinceEpoch ~/ 1000}');
-
-    try {
-      // First, let's get ALL data without filtering to see what's available
-      final snapshot = await _firebaseDbRef
-          .child('users/${user.uid}/healthData')
-          .get();
-
-      final Map<DateTime, List<Map<dynamic, dynamic>>> dailyFirebaseData = {};
-
-      if (snapshot.exists) {
-        final firebaseData = snapshot.value as Map<dynamic, dynamic>;
-        print('Found ${firebaseData.length} total entries');
-
-        firebaseData.forEach((key, value) {
-          final entry = value as Map<dynamic, dynamic>;
-          // Try both field name variations for compatibility
-          final epochTime = entry['epoch_time'] as int? ?? entry['epochTime'] as int?;
-          if (epochTime != null) {
-            final timestamp = DateTime.fromMillisecondsSinceEpoch(epochTime * 1000);
-            final day = DateTime.utc(timestamp.year, timestamp.month, timestamp.day);
-
-            print('Entry: $key, epoch: $epochTime, date: ${DateFormat.yMMMd().format(timestamp)}');
-
-            // Only include data for the current month we're viewing
-            if (timestamp.year == month.year && timestamp.month == month.month) {
-              dailyFirebaseData.putIfAbsent(day, () => []).add(entry);
-              print('Added entry for ${DateFormat.yMMMd().format(day)}');
-            }
-          }
-        });
-      } else {
-        print('No data found in snapshot');
-      }
-
-      print('Processed ${dailyFirebaseData.length} days of data for ${DateFormat.yMMM().format(month)}');
-      dailyFirebaseData.forEach((day, entries) {
-        print('Day: ${DateFormat.yMMMd().format(day)}, entries: ${entries.length}');
-      });
-
-      // Clear existing data for this month and add new data
-      _healthDataMap.removeWhere((key, value) =>
-      key.year == month.year && key.month == month.month);
-
-      final Set<DateTime> allDays = dailyFirebaseData.keys.toSet();
-      for (var day in allDays) {
-        _healthDataMap[day] = DailyHealthSummary(
-          heartRateStats: _calculateVitalStats(dailyFirebaseData[day] ?? [], 'heart_rate'),
-          spo2Stats: _calculateVitalStats(dailyFirebaseData[day] ?? [], 'oxygen_saturation'),
-          postureStats: _calculatePostureStats(dailyFirebaseData[day] ?? []),
-          stressStats: _calculateStressStats(dailyFirebaseData[day] ?? []),
-        );
-        print('Created summary for ${DateFormat.yMMMd().format(day)}');
-      }
-
-      if (mounted) {
-        setState(() {
-          _isLoading = false;
-          _updateSelectedDaySummary(_selectedDay!);
-        });
-        print('Updated UI with ${_healthDataMap.length} total days of data');
-      }
-    } catch (e) {
-      print('Error fetching calendar data: $e');
-      if (mounted) {
-        setState(() => _isLoading = false);
-      }
-    }
-  }
-
-  FirebaseHealthStats _calculateVitalStats(List<Map<dynamic, dynamic>> entries, String vitalType) {
-    if (entries.isEmpty) return FirebaseHealthStats();
-    double? min, max;
-    double sum = 0;
-    int count = 0;
-    for (var e in entries) {
-      final value = e['vitals']?[vitalType]?.toDouble();
-      if (value != null && value > 0) {
-        sum += value;
-        count++;
-        if (min == null || value < min) min = value;
-        if (max == null || value > max) max = value;
-      }
-    }
-    return count > 0 ? FirebaseHealthStats(min: min, max: max, avg: sum / count) : FirebaseHealthStats();
-  }
-
-  PostureStats _calculatePostureStats(List<Map<dynamic, dynamic>> entries) {
-    if (entries.isEmpty) return PostureStats();
-    double? min, max;
-    double sum = 0;
-    int count = 0;
-    for (var e in entries) {
-      final value = e['posture']?['rula_score']?.toDouble();
-      if (value != null && value > 0) {
-        sum += value;
-        count++;
-        if (min == null || value < min) min = value;
-        if (max == null || value > max) max = value;
-      }
-    }
-    return count > 0 ? PostureStats(minRulaScore: min, maxRulaScore: max, avgRulaScore: sum / count) : PostureStats();
-  }
-
-  StressStats _calculateStressStats(List<Map<dynamic, dynamic>> entries) {
-    if (entries.isEmpty) return StressStats();
-    double? min, max;
-    double sum = 0;
-    int count = 0;
-    for (var e in entries) {
-      final value = e['stress']?['gsr_reading']?.toDouble();
-      if (value != null && value >= 0) { // Changed from > 0 to >= 0 to include 0 values
-        sum += value;
-        count++;
-        if (min == null || value < min) min = value;
-        if (max == null || value > max) max = value;
-      }
-    }
-    return count > 0 ? StressStats(minGsr: min, maxGsr: max, avgGsr: sum / count) : StressStats();
+    // With simulated data, we don't need to fetch from Firebase.
+    // The data is already generated for the entire June-July range.
+    // We just need to ensure the UI updates based on _healthDataMap.
+    if (!mounted) return;
+    setState(() {
+      _isLoading = false; // No loading needed as data is local
+      _updateSelectedDaySummary(_selectedDay!);
+    });
   }
 
   void _updateSelectedDaySummary(DateTime day) {

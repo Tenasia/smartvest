@@ -19,7 +19,8 @@ import 'package:smartvest/features/posture_screen.dart';
 import 'package:smartvest/features/heartrate_screen.dart';
 import 'package:smartvest/features/stress_level_screen.dart';
 import 'package:smartvest/features/smart_vest_screen.dart';
-import 'package:smartvest/features/oxygen_saturation_screen.dart'; // Import the new screen
+import 'package:smartvest/features/oxygen_saturation_screen.dart';
+import 'package:smartvest/features/group_dashboard_screen.dart';
 
 class AppRoutes {
   static const String login = '/login';
@@ -42,7 +43,8 @@ class AppRoutes {
   static const String heartRateScreen = '/heart_rate_screen';
   static const String stressLevelScreen = '/stress_level_screen';
   static const String smartVestScreen = '/smart_vest_screen';
-  static const String oxygenSaturationScreen = '/oxygen_saturation_screen'; // New route name
+  static const String oxygenSaturationScreen = '/oxygen_saturation_screen';
+  static const String groupDashboardScreen = '/group_dashboard_screen';
 
   static Map<String, WidgetBuilder> routes = {
     login: (context) => const LoginScreen(),
@@ -61,10 +63,11 @@ class AppRoutes {
     profile: (context) => const ProfileScreen(),
     editPersonalInformation: (context) => const EditPersonalInformationScreen(),
     editPhysicalInformation: (context) => const EditPhysicalInformationScreen(),
-    postureScreen: (context) => const PostureScreen(),
-    heartRateScreen: (context) => const HeartRateScreen(),
-    stressLevelScreen: (context) => const StressLevelScreen(),
+    postureScreen: (context) => const PostureScreen(hourlyData: []),
+    heartRateScreen: (context) => const HeartRateScreen(hourlyData: []),
+    stressLevelScreen: (context) => const StressLevelScreen(hourlyData: [],),
     smartVestScreen: (context) => const SmartVestScreen(),
-    oxygenSaturationScreen: (context) => const OxygenSaturationScreen(), // Add the new route
+    oxygenSaturationScreen: (context) => const OxygenSaturationScreen(hourlyData: [],),
+    groupDashboardScreen: (context) => const GroupDashboardScreen(),
   };
 }

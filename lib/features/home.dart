@@ -1,8 +1,6 @@
 import 'dart:async';
+import 'dart:math';
 import 'package:flutter/material.dart';
-import 'package:firebase_auth/firebase_auth.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_database/firebase_database.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:flutter_staggered_grid_view/flutter_staggered_grid_view.dart';
@@ -12,6 +10,15 @@ import 'package:flutter_markdown/flutter_markdown.dart';
 // Assuming these are defined in your project
 import 'package:smartvest/config/app_routes.dart';
 import 'package:smartvest/core/services/gemini_service.dart';
+import 'package:smartvest/features/posture_screen.dart';
+import 'package:smartvest/features/stress_level_screen.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:smartvest/widgets/data_privacy_disclaimer.dart';
+
+import 'heartrate_screen.dart';
+import 'oxygen_saturation_screen.dart';
 
 // --- [1] CLEAN & MODERN DESIGN SYSTEM ---
 class AppColors {
@@ -54,23 +61,6 @@ class AppTextStyles {
   );
 }
 
-// Custom health data stats class for Firebase data
-class HealthDataStats {
-  final double? min;
-  final double? max;
-  final double? avg;
-  final double? latest;
-  final int count;
-
-  HealthDataStats({
-    this.min,
-    this.max,
-    this.avg,
-    this.latest,
-    this.count = 0,
-  });
-}
-
 // --- MAIN WIDGET ---
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -80,45 +70,129 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  final FirebaseAuth _auth = FirebaseAuth.instance;
-  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final GeminiService _geminiService = GeminiService();
+  Timer? _simulationTimer;
+  final Random _random = Random();
 
-  User? _user;
-  Map<String, dynamic>? _userData;
+  String _userName = "User"; // Default to "User"
+  String? _profileImageUrl; // New variable for profile image URL
+  bool _hasAgreedToDisclaimer = false; // New state variable
 
-  HealthDataStats? _heartRateStats;
-  HealthDataStats? _spo2Stats;
+  // Simulated data
+  double _heartRate = 80;
+  double _spo2 = 98;
+  int _rulaScore = 2;
+  String _postureStatus = "Acceptable";
+  double _gsrReading = 400;
+  String _stressLevel = "Low";
 
-  StreamSubscription? _healthMonitorSubscription;
-  Map<dynamic, dynamic>? _latestHealthData;
-  List<Map<dynamic, dynamic>> _recentFirebaseData = [];
+  List<FlSpot> _heartRateData = [];
+  List<FlSpot> _spo2Data = [];
+  List<FlSpot> _postureData = [];
+  List<FlSpot> _stressData = [];
 
   String _globalAiSummary = "Tap to generate your daily wellness summary.";
   bool _isGeneratingSummary = false;
 
-  bool _isLoading = true;
-  String _errorMessage = '';
-
   @override
   void initState() {
     super.initState();
-    _fetchAllData();
+    _checkDisclaimerStatus();
+    _fetchUserName();
+    _startDataSimulation();
+  }
+
+  Future<void> _checkDisclaimerStatus() async {
+    final prefs = await SharedPreferences.getInstance();
+    final agreed = prefs.getBool('hasAgreedToDisclaimer') ?? false;
+    if (!agreed) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        showDialog(
+          context: context,
+          barrierDismissible: false,
+          builder: (BuildContext context) {
+            return DataPrivacyDisclaimer(
+              onAgreed: () {
+                setState(() {
+                  _hasAgreedToDisclaimer = true;
+                });
+                Navigator.of(context).pop();
+              },
+            );
+          },
+        );
+      });
+    } else {
+      setState(() {
+        _hasAgreedToDisclaimer = true;
+      });
+    }
+  }
+
+  Future<void> _fetchUserName() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user != null) {
+      final doc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
+      if (doc.exists) {
+        setState(() {
+          _userName = doc.data()!['firstName'] ?? "User";
+          _profileImageUrl = doc.data()!['profileImageUrl'];
+        });
+      }
+    }
   }
 
   @override
   void dispose() {
-    _healthMonitorSubscription?.cancel();
+    _simulationTimer?.cancel();
     super.dispose();
+  }
+
+  void _startDataSimulation() {
+    _simulationTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      setState(() {
+        // Simulate Heart Rate (60-120 bpm)
+        _heartRate = 60 + _random.nextDouble() * 60;
+        // Simulate SpO2 (95-100%)
+        _spo2 = 95 + _random.nextDouble() * 5;
+        // Simulate Posture (RULA Score 1-7)
+        _rulaScore = 1 + _random.nextInt(7);
+        _postureStatus = _getPostureStatus(_rulaScore);
+        // Simulate Stress (GSR Reading mapped to levels)
+        _gsrReading = 200 + _random.nextDouble() * 600;
+        _stressLevel = _getStressLevel(_gsrReading);
+
+        // Update chart data
+        final now = DateTime.now().millisecondsSinceEpoch.toDouble();
+        _heartRateData.add(FlSpot(now, _heartRate));
+        _spo2Data.add(FlSpot(now, _spo2));
+        _postureData.add(FlSpot(now, _rulaScore.toDouble()));
+        _stressData.add(FlSpot(now, _gsrReading));
+
+        // Keep chart data to a reasonable size (e.g., last 60 points)
+        if (_heartRateData.length > 60) _heartRateData.removeAt(0);
+        if (_spo2Data.length > 60) _spo2Data.removeAt(0);
+        if (_postureData.length > 60) _postureData.removeAt(0);
+        if (_stressData.length > 60) _stressData.removeAt(0);
+      });
+    });
+  }
+
+  String _getPostureStatus(int score) {
+    if (score <= 2) return "Acceptable";
+    if (score <= 4) return "Further Investigation";
+    if (score <= 6) return "Investigate & Change";
+    return "Change Immediately";
+  }
+
+  String _getStressLevel(double gsr) {
+    if (gsr < 400) return "Low";
+    if (gsr < 700) return "Medium";
+    return "High";
   }
 
   Future<void> _generateGlobalAiSummary({bool forceRefresh = false}) async {
     if (_isGeneratingSummary) return;
-
-    if (_recentFirebaseData.isEmpty) {
-      if (mounted) setState(() => _globalAiSummary = "Not enough data to generate a summary for today.");
-      return;
-    }
 
     setState(() {
       _isGeneratingSummary = true;
@@ -127,28 +201,13 @@ class _HomeScreenState extends State<HomeScreen> {
 
     try {
       final promptData = StringBuffer();
-      final userName = _userData?['firstName'] ?? 'User';
-      promptData.writeln("Analyze the following daily health data for $userName and provide a holistic summary.");
+      promptData.writeln("Analyze the following simulated daily health data for a user and provide a holistic summary, including a section for burnout prediction.");
+      promptData.writeln("\n- Heart Rate: Fluctuating around ${_heartRate.toStringAsFixed(0)} BPM.");
+      promptData.writeln("- Blood Oxygen: Stable around ${_spo2.toStringAsFixed(1)}%.");
+      promptData.writeln("- Posture: Currently '${_postureStatus}'.");
+      promptData.writeln("- Stress: Current level is '${_stressLevel}' (GSR: ${_gsrReading.toStringAsFixed(0)}).");
+      promptData.writeln("\nProvide a summary that: \n1. Gives a friendly, overall status. \n2. Highlights any interesting simulated patterns. \n3. Offers one or two simple, actionable recommendations for tomorrow. \n4. **Burnout Prediction**: Based on the stress levels and any other relevant data, provide a brief assessment of potential burnout risk (e.g., Low, Medium, High) and suggest proactive measures. Use markdown for formatting.");
 
-      if (_heartRateStats != null && _heartRateStats!.avg != null) {
-        promptData.writeln("\n- Heart Rate: Average of ${_heartRateStats!.avg!.toStringAsFixed(0)} BPM, Min of ${_heartRateStats!.min?.toStringAsFixed(0)}, Max of ${_heartRateStats!.max?.toStringAsFixed(0)}.");
-      }
-      if (_spo2Stats != null && _spo2Stats!.avg != null) {
-        promptData.writeln("- Blood Oxygen: Average of ${_spo2Stats!.avg!.toStringAsFixed(1)}%, Min of ${_spo2Stats!.min?.toStringAsFixed(1)}, Max of ${_spo2Stats!.max?.toStringAsFixed(1)}.");
-      }
-      if (_recentFirebaseData.isNotEmpty) {
-        final postureScores = _recentFirebaseData.where((d) => d['posture'] != null).map((d) => d['posture']['rula_score']).toList();
-        final stressScores = _recentFirebaseData.where((d) => d['stress'] != null).map((d) => d['stress']['gsr_reading']).toList();
-        if (postureScores.isNotEmpty) {
-          promptData.writeln("- Posture: Recorded ${postureScores.length} posture readings. The RULA scores ranged from ${postureScores.reduce((a, b) => a < b ? a : b)} (best) to ${postureScores.reduce((a, b) => a > b ? a : b)} (worst).");
-        }
-        if (stressScores.isNotEmpty) {
-          promptData.writeln("- Stress: Recorded ${stressScores.length} GSR readings, indicating fluctuations in stress levels throughout the day.");
-        }
-      }
-      promptData.writeln("\nProvide a summary that: \n1. Gives a friendly, overall status. \n2. Highlights any correlations (e.g., 'stress levels seemed to rise when posture was poor'). \n3. Offers one or two simple, actionable recommendations for tomorrow. Use markdown for formatting.");
-
-      // Use the new global summary method from the service
       final summary = await _geminiService.getGlobalSummary(promptData.toString());
 
       if (mounted) {
@@ -171,120 +230,6 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  Future<void> _fetchAllData() async {
-    if (!mounted) return;
-    setState(() { _isLoading = true; _errorMessage = ''; });
-    await _fetchUserData();
-    _initFirebaseRealtimeListener();
-    if (mounted) setState(() => _isLoading = false);
-  }
-
-  Future<void> _fetchUserData() async {
-    _user = _auth.currentUser;
-    if (_user != null) {
-      try {
-        final doc = await _firestore.collection('users').doc(_user!.uid).get();
-        if (mounted && doc.exists) setState(() => _userData = doc.data());
-      } catch (e) {
-        if(mounted) setState(() => _errorMessage = 'Failed to load profile.');
-      }
-    }
-  }
-
-  void _initFirebaseRealtimeListener() {
-    if (_user == null) return;
-
-    final databaseReference = FirebaseDatabase.instance.ref('users/${_user!.uid}/healthData');
-    _healthMonitorSubscription?.cancel();
-    _healthMonitorSubscription = databaseReference.limitToLast(100).onValue.listen((event) {
-      if (event.snapshot.value != null && mounted) {
-        final dataMap = event.snapshot.value as Map<dynamic, dynamic>;
-        final List<Map<dynamic, dynamic>> tempList = [];
-
-        dataMap.forEach((key, value) {
-          final entry = value as Map<dynamic, dynamic>;
-          final epochSeconds = entry['epoch_time'] as int? ?? int.tryParse(key.toString());
-          if (epochSeconds != null) {
-            try {
-              entry['parsedTimestamp'] = DateTime.fromMillisecondsSinceEpoch(epochSeconds * 1000);
-              tempList.add(entry);
-            } catch (e) {
-              print('Error parsing timestamp for key $key: $e');
-            }
-          }
-        });
-
-        tempList.sort((a, b) => (a['parsedTimestamp'] as DateTime).compareTo(b['parsedTimestamp'] as DateTime));
-
-        if (tempList.isNotEmpty) {
-          setState(() {
-            _latestHealthData = tempList.last;
-            _recentFirebaseData = tempList;
-            _calculateHealthStats();
-          });
-        }
-      }
-    }, onError: (error) {
-      if (mounted) setState(() => _errorMessage = "Failed to load sensor data.");
-    });
-  }
-
-  void _calculateHealthStats() {
-    final now = DateTime.now();
-    final oneHourAgo = now.subtract(const Duration(hours: 1));
-
-    // Filter last hour's data
-    final lastHourData = _recentFirebaseData.where((entry) {
-      final timestamp = entry['parsedTimestamp'] as DateTime?;
-      return timestamp != null &&
-          timestamp.isAfter(oneHourAgo) &&
-          timestamp.isBefore(now);
-    }).toList();
-
-    // Calculate heart rate stats
-    final heartRateValues = lastHourData
-        .where((entry) => entry['vitals']?['heart_rate'] != null)
-        .map((entry) => (entry['vitals']['heart_rate'] as num).toDouble())
-        .where((value) => value > 0)
-        .toList();
-
-    if (heartRateValues.isNotEmpty) {
-      _heartRateStats = HealthDataStats(
-        min: heartRateValues.reduce((a, b) => a < b ? a : b),
-        max: heartRateValues.reduce((a, b) => a > b ? a : b),
-        avg: heartRateValues.reduce((a, b) => a + b) / heartRateValues.length,
-        latest: heartRateValues.last,
-        count: heartRateValues.length,
-      );
-    }
-
-    // Calculate SpO2 stats
-    final spo2Values = lastHourData
-        .where((entry) => entry['vitals']?['oxygen_saturation'] != null)
-        .map((entry) => (entry['vitals']['oxygen_saturation'] as num).toDouble())
-        .where((value) => value > 0)
-        .toList();
-
-    if (spo2Values.isNotEmpty) {
-      _spo2Stats = HealthDataStats(
-        min: spo2Values.reduce((a, b) => a < b ? a : b),
-        max: spo2Values.reduce((a, b) => a > b ? a : b),
-        avg: spo2Values.reduce((a, b) => a + b) / spo2Values.length,
-        latest: spo2Values.last,
-        count: spo2Values.length,
-      );
-    }
-  }
-
-  bool _isDataFromLastHour(Map<dynamic, dynamic>? data) {
-    if (data == null) return false;
-    final timestamp = data['parsedTimestamp'];
-    if (timestamp == null || timestamp is! DateTime) return false;
-    final now = DateTime.now();
-    final oneHourAgo = now.subtract(const Duration(hours: 1));
-    return timestamp.isAfter(oneHourAgo) && timestamp.isBefore(now);
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -293,25 +238,23 @@ class _HomeScreenState extends State<HomeScreen> {
         backgroundColor: AppColors.background,
         elevation: 0,
         title: Text('Home Dashboard', style: AppTextStyles.heading),
-        actions: [],
-      ),
-      body: _isLoading && _userData == null
-          ? const Center(child: CircularProgressIndicator(color: AppColors.primaryText))
-          : RefreshIndicator(
-        onRefresh: _fetchAllData,
-        color: AppColors.primaryText,
-        child: SingleChildScrollView(
-          physics: const AlwaysScrollableScrollPhysics(),
-          padding: const EdgeInsets.all(16.0),
-          child: _errorMessage.isNotEmpty
-              ? Center(child: Text(_errorMessage, style: const TextStyle(color: Colors.red)))
-              : Column(
-            children: [
-              _buildBentoGrid(),
-              const SizedBox(height: 16),
-              _buildAiSummaryCard(),
-            ],
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.group_work_rounded, color: AppColors.primaryText),
+            onPressed: () => Navigator.pushNamed(context, AppRoutes.groupDashboardScreen),
+            tooltip: 'Group Dashboard',
           ),
+        ],
+      ),
+      body: SingleChildScrollView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          children: [
+            _buildBentoGrid(),
+            const SizedBox(height: 16),
+            _buildAiSummaryCard(),
+          ],
         ),
       ),
     );
@@ -352,31 +295,10 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _buildFirebaseLineChart(List<Map<dynamic, dynamic>> data, String dataKey, String nestedKey, Color lineColor) {
+  Widget _buildSimulatedLineChart(List<FlSpot> data, Color lineColor) {
     if (data.isEmpty) {
       return Center(child: Text("No chart data.", style: AppTextStyles.secondaryInfo));
     }
-
-    // Filter data to only show last hour
-    final now = DateTime.now();
-    final oneHourAgo = now.subtract(const Duration(hours: 1));
-
-    final lastHourData = data.where((entry) {
-      final timestamp = entry['parsedTimestamp'] as DateTime?;
-      return timestamp != null &&
-          timestamp.isAfter(oneHourAgo) &&
-          timestamp.isBefore(now);
-    }).toList();
-
-    if (lastHourData.isEmpty) {
-      return Center(child: Text("No chart data for last hour.", style: AppTextStyles.secondaryInfo));
-    }
-
-    final spots = lastHourData.map((entry) {
-      final value = entry[dataKey]?[nestedKey]?.toDouble() ?? 0.0;
-      final timestamp = (entry['parsedTimestamp'] as DateTime).millisecondsSinceEpoch.toDouble();
-      return FlSpot(timestamp, value);
-    }).toList();
 
     return LineChart(
       LineChartData(
@@ -385,7 +307,7 @@ class _HomeScreenState extends State<HomeScreen> {
         borderData: FlBorderData(show: false),
         lineBarsData: [
           LineChartBarData(
-            spots: spots,
+            spots: data,
             isCurved: true,
             color: lineColor,
             barWidth: 2.5,
@@ -406,10 +328,6 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildUserProfileCard() {
-    final String firstName = _userData?['firstName'] ?? 'User';
-    String? photoUrl = _userData?['photoURL'] ?? _user?.photoURL;
-    photoUrl = (photoUrl == null || photoUrl.isEmpty) ? null : photoUrl;
-
     return GestureDetector(
       onTap: () => Navigator.pushNamed(context, AppRoutes.profile),
       child: Container(
@@ -443,9 +361,9 @@ class _HomeScreenState extends State<HomeScreen> {
                   CircleAvatar(
                     radius: 28,
                     backgroundColor: AppColors.profileColor.withOpacity(0.2),
-                    backgroundImage: photoUrl != null ? NetworkImage(photoUrl) : null,
-                    child: photoUrl == null
-                        ? Text(firstName.isNotEmpty ? firstName[0] : 'U', style: AppTextStyles.heading.copyWith(color: AppColors.profileColor))
+                    backgroundImage: _profileImageUrl != null ? NetworkImage(_profileImageUrl!) : null,
+                    child: _profileImageUrl == null
+                        ? Text(_userName.isNotEmpty ? _userName[0].toUpperCase() : 'U', style: AppTextStyles.heading.copyWith(color: AppColors.profileColor))
                         : null,
                   ),
                   const SizedBox(width: 12),
@@ -456,7 +374,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       children: [
                         Text("Hello,", style: AppTextStyles.secondaryInfo),
                         Text(
-                          firstName,
+                          _userName,
                           style: AppTextStyles.cardTitle.copyWith(fontSize: 18),
                           overflow: TextOverflow.ellipsis,
                           maxLines: 1,
@@ -474,12 +392,13 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildHeartRateCard() {
-    final currentBpm = _heartRateStats?.latest != null
-        ? _heartRateStats!.latest!.toStringAsFixed(0)
-        : "--";
-
     return HealthMetricCard(
-      onTap: () => Navigator.pushNamed(context, AppRoutes.heartRateScreen),
+      onTap: () => Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => HeartRateScreen(hourlyData: _heartRateData),
+        ),
+      ),
       title: "Heart rate",
       icon: Icons.favorite_rounded,
       iconColor: AppColors.heartRateColor,
@@ -490,7 +409,7 @@ class _HomeScreenState extends State<HomeScreen> {
             fit: BoxFit.scaleDown,
             child: RichText(
               text: TextSpan(
-                text: currentBpm,
+                text: _heartRate.toStringAsFixed(0),
                 style: AppTextStyles.metricValue.copyWith(color: AppColors.heartRateColor),
                 children: [TextSpan(text: ' BPM', style: AppTextStyles.metricUnit)],
               ),
@@ -500,10 +419,8 @@ class _HomeScreenState extends State<HomeScreen> {
           Expanded(
             child: Padding(
               padding: const EdgeInsets.only(top: 8.0),
-              child: _buildFirebaseLineChart(
-                _recentFirebaseData,
-                'vitals',
-                'heart_rate',
+              child: _buildSimulatedLineChart(
+                _heartRateData,
                 AppColors.heartRateColor,
               ),
             ),
@@ -514,12 +431,13 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildSpo2Card() {
-    final currentSpo2 = _spo2Stats?.latest != null
-        ? _spo2Stats!.latest!.toStringAsFixed(0)
-        : "--";
-
     return HealthMetricCard(
-      onTap: () => Navigator.pushNamed(context, AppRoutes.oxygenSaturationScreen),
+      onTap: () => Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => OxygenSaturationScreen(hourlyData: _spo2Data),
+        ),
+      ),
       title: "Blood oxygen",
       icon: Icons.bloodtype_rounded,
       iconColor: AppColors.oxygenColor,
@@ -530,7 +448,7 @@ class _HomeScreenState extends State<HomeScreen> {
             fit: BoxFit.scaleDown,
             child: RichText(
               text: TextSpan(
-                text: currentSpo2,
+                text: _spo2.toStringAsFixed(0),
                 style: AppTextStyles.metricValue.copyWith(color: AppColors.oxygenColor),
                 children: [TextSpan(text: ' %', style: AppTextStyles.metricUnit)],
               ),
@@ -540,10 +458,8 @@ class _HomeScreenState extends State<HomeScreen> {
           Expanded(
             child: Padding(
               padding: const EdgeInsets.only(top: 8.0),
-              child: _buildFirebaseLineChart(
-                _recentFirebaseData,
-                'vitals',
-                'oxygen_saturation',
+              child: _buildSimulatedLineChart(
+                _spo2Data,
                 AppColors.oxygenColor,
               ),
             ),
@@ -554,12 +470,13 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildPostureCard() {
-    final bool hasDataFromLastHour = _isDataFromLastHour(_latestHealthData);
-    final postureData = hasDataFromLastHour ? _latestHealthData!['posture'] : null;
-    final String status = postureData?['rula_assessment']?.replaceAll('_', ' ') ?? 'No Data';
-
     return HealthMetricCard(
-      onTap: () => Navigator.pushNamed(context, AppRoutes.postureScreen),
+      onTap: () => Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => PostureScreen(hourlyData: _postureData),
+        ),
+      ),
       title: "Posture",
       icon: Icons.accessibility_new_rounded,
       iconColor: AppColors.postureColor,
@@ -567,7 +484,7 @@ class _HomeScreenState extends State<HomeScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            status,
+            _postureStatus,
             style: AppTextStyles.metricValue.copyWith(color: AppColors.postureColor, fontSize: 24),
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
@@ -575,10 +492,8 @@ class _HomeScreenState extends State<HomeScreen> {
           Text('Live', style: AppTextStyles.secondaryInfo),
           const SizedBox(height: 8),
           Expanded(
-            child: _buildFirebaseLineChart(
-              _recentFirebaseData,
-              'posture',
-              'rula_score',
+            child: _buildSimulatedLineChart(
+              _postureData,
               AppColors.postureColor,
             ),
           ),
@@ -588,12 +503,13 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildStressCard() {
-    final bool hasDataFromLastHour = _isDataFromLastHour(_latestHealthData);
-    final stressData = hasDataFromLastHour ? _latestHealthData!['stress'] : null;
-    final String level = stressData?['stress_level']?.replaceAll('_', ' ') ?? 'No Data';
-
     return HealthMetricCard(
-      onTap: () => Navigator.pushNamed(context, AppRoutes.stressLevelScreen),
+      onTap: () => Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => StressLevelScreen(hourlyData: _stressData),
+        ),
+      ),
       title: "Stress",
       icon: Icons.bolt_rounded,
       iconColor: AppColors.stressColor,
@@ -601,7 +517,7 @@ class _HomeScreenState extends State<HomeScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            level,
+            _stressLevel,
             style: AppTextStyles.metricValue.copyWith(color: AppColors.stressColor, fontSize: 24),
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
@@ -609,10 +525,8 @@ class _HomeScreenState extends State<HomeScreen> {
           Text('Live', style: AppTextStyles.secondaryInfo),
           const SizedBox(height: 8),
           Expanded(
-            child: _buildFirebaseLineChart(
-              _recentFirebaseData,
-              'stress',
-              'gsr_reading',
+            child: _buildSimulatedLineChart(
+              _stressData,
               AppColors.stressColor,
             ),
           ),

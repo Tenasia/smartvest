@@ -21,7 +21,7 @@ Future<void> initializeService() async {
       autoStart: true,
       notificationChannelId: lowImportanceChannelId,
       initialNotificationTitle: 'ErgoTrack Service',
-      initialNotificationContent: 'Initializing...',
+      initialNotificationContent: '',
       foregroundServiceNotificationId: notificationId,
     ),
     iosConfiguration: IosConfiguration(
@@ -59,6 +59,13 @@ void onStart(ServiceInstance service) async {
   String? lastProcessedDataKey;
   DateTime? lastNotificationTime;
   final Duration notificationCooldown = const Duration(minutes: 5);
+
+  // Update the persistent notification immediately on start
+  service.invoke('update', {
+    'id': notificationId,
+    'title': 'Smart Vest is Disconnected',
+    'body': 'Please connect your device.',
+  });
 
   // Monitor Firebase Realtime Database for new health data
   Timer.periodic(const Duration(minutes: 1), (timer) async {
@@ -130,8 +137,8 @@ void onStart(ServiceInstance service) async {
     // Update the persistent notification
     notificationService.showForegroundServiceNotification(
       id: notificationId,
-      title: 'Smart Vest is Active',
-      body: 'Monitoring your health data. Last check: ${DateFormat.jm().format(now)}',
+      title: 'Smart Vest is disconnected',
+      body: 'Please connect your device to continue monitoring',
     );
   });
 }

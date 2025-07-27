@@ -1,12 +1,10 @@
-import 'package:flutter/material.dart';
-import 'package:smartvest/core/services/gemini_service.dart';
-import 'package:fl_chart/fl_chart.dart';
-import 'package:intl/intl.dart';
-import 'package:flutter_markdown/flutter_markdown.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
-import 'package:firebase_database/firebase_database.dart';
 import 'dart:async';
+import 'dart:math';
+import 'package:flutter/material.dart';
+import 'package:fl_chart/fl_chart.dart';
+import 'package:flutter_markdown/flutter_markdown.dart';
+import 'package:intl/intl.dart';
+import 'package:smartvest/core/services/gemini_service.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 // --- DESIGN SYSTEM ---
@@ -25,7 +23,7 @@ class AppTextStyles {
   static final TextStyle cardTitle = GoogleFonts.poppins(
       fontSize: 16, fontWeight: FontWeight.w600, color: AppColors.primaryText);
   static final TextStyle metricValue = GoogleFonts.poppins(
-      fontSize: 36, fontWeight: FontWeight.bold, color: AppColors.primaryText);
+      fontSize: 28, fontWeight: FontWeight.bold, color: AppColors.primaryText);
   static final TextStyle metricUnit = GoogleFonts.poppins(
       fontSize: 16, fontWeight: FontWeight.w500, color: AppColors.secondaryText);
   static final TextStyle secondaryInfo = GoogleFonts.poppins(
@@ -36,29 +34,19 @@ class AppTextStyles {
       fontSize: 14, fontWeight: FontWeight.w600);
 }
 
-// --- Firebase Health Data Models ---
-class FirebaseHealthDataPoint {
-  final DateTime timestamp;
-  final double value;
-
-  FirebaseHealthDataPoint({required this.timestamp, required this.value});
-}
-
-class FirebaseHealthStats {
+class HealthStats {
   final double? min;
   final double? max;
   final double? avg;
-  final FirebaseHealthDataPoint? latest;
+  final FlSpot? latest;
 
-  FirebaseHealthStats({this.min, this.max, this.avg, this.latest});
+  HealthStats({this.min, this.max, this.avg, this.latest});
 }
 
-// --- Caching Logic ---
-String _cachedSpo2Summary = "Generating summary...";
-DateTime? _lastSpo2SummaryTimestamp;
-
 class OxygenSaturationScreen extends StatefulWidget {
-  const OxygenSaturationScreen({super.key});
+  final List<FlSpot> hourlyData;
+
+  const OxygenSaturationScreen({super.key, required this.hourlyData});
 
   @override
   State<OxygenSaturationScreen> createState() => _OxygenSaturationScreenState();
@@ -66,165 +54,120 @@ class OxygenSaturationScreen extends StatefulWidget {
 
 class _OxygenSaturationScreenState extends State<OxygenSaturationScreen> {
   final GeminiService _geminiService = GeminiService();
-  final DatabaseReference _dbRef = FirebaseDatabase.instance.ref();
+  final Random _random = Random();
 
   int _selectedSegment = 0;
-  bool _isLoading = true;
+  bool _isLoading = false;
 
-  List<FirebaseHealthDataPoint> _dataPoints = [];
-  FirebaseHealthStats _stats = FirebaseHealthStats();
-  String _aiSummary = _cachedSpo2Summary;
-  DateTime? _chartStartTime;
-  Timer? _periodicTimer;
+  List<FlSpot> _currentData = [];
+  HealthStats _stats = HealthStats();
+  String _aiSummary = "Select a time range to view your summary.";
 
   @override
   void initState() {
     super.initState();
-    _fetchDataForSegment();
-    _periodicTimer = Timer.periodic(const Duration(minutes: 5), (timer) {
-      if(mounted) _fetchDataForSegment();
+    _updateDataForSegment(0, initialLoad: true);
+  }
+
+  void _updateDataForSegment(int index, {bool initialLoad = false}) {
+    if (!mounted) return;
+    setState(() {
+      _isLoading = true;
+      _selectedSegment = index;
     });
-  }
 
-  @override
-  void dispose() {
-    _periodicTimer?.cancel();
-    super.dispose();
-  }
+    Timer(const Duration(milliseconds: 300), () {
+      List<FlSpot> newData;
+      Duration duration;
 
-  Future<void> _fetchDataForSegment() async {
-    final user = FirebaseAuth.instance.currentUser;
-    if (!mounted || user == null) return;
-
-    setState(() { _isLoading = true; });
-
-    final now = DateTime.now();
-    DateTime startTime;
-    switch (_selectedSegment) {
-      case 0: startTime = now.subtract(const Duration(hours: 1)); break; // 1 hour
-      case 1: startTime = DateTime(now.year, now.month, now.day); break; // Day
-      case 2: startTime = now.subtract(const Duration(days: 7)); break; // Week
-      case 3: startTime = now.subtract(const Duration(days: 30)); break; // Month
-      default: startTime = now.subtract(const Duration(hours: 1));
-    }
-    _chartStartTime = startTime;
-
-    try {
-      // Get all data first, then filter by time
-      final snapshot = await _dbRef
-          .child('users/${user.uid}/healthData')
-          .orderByChild('epochTime')
-          .limitToLast(1000) // Get recent data
-          .get();
-
-      List<FirebaseHealthDataPoint> points = [];
-
-      if (snapshot.exists) {
-        final data = snapshot.value as Map<dynamic, dynamic>;
-        data.forEach((key, value) {
-          final entry = value as Map<dynamic, dynamic>;
-          // Try both field name variations
-          final epochTime = entry['epochTime'] as int? ?? entry['epoch_time'] as int?;
-          final vitals = entry['vitals'] as Map<dynamic, dynamic>?;
-          final spo2 = vitals?['oxygen_saturation'] as num?;
-
-          if (epochTime != null && spo2 != null && spo2 > 0) {
-            final timestamp = DateTime.fromMillisecondsSinceEpoch(epochTime * 1000);
-
-            // Filter by selected time period
-            if (timestamp.isAfter(startTime) && timestamp.isBefore(now)) {
-              points.add(FirebaseHealthDataPoint(
-                timestamp: timestamp,
-                value: spo2.toDouble(),
-              ));
-            }
-          }
-        });
+      switch (index) {
+        case 0: // 1 Hour
+          newData = List.from(widget.hourlyData);
+          duration = const Duration(hours: 1);
+          break;
+        case 1: // Day
+          duration = const Duration(days: 1);
+          newData = _generateSimulatedData(duration, points: 96, baseValue: 98, variation: 2);
+          break;
+        case 2: // Week
+          duration = const Duration(days: 7);
+          newData = _generateSimulatedData(duration, points: 168, baseValue: 98, variation: 2);
+          break;
+        case 3: // Month
+          duration = const Duration(days: 30);
+          newData = _generateSimulatedData(duration, points: 240, baseValue: 98, variation: 2);
+          break;
+        default:
+          newData = [];
+          duration = const Duration(hours: 1);
       }
-
-      points.sort((a, b) => a.timestamp.compareTo(b.timestamp));
-
-      double? min, max;
-      double sum = 0;
-
-      if (points.isNotEmpty) {
-        for (var p in points) {
-          sum += p.value;
-          if (min == null || p.value < min) min = p.value;
-          if (max == null || p.value > max) max = p.value;
-        }
-      }
-
-      final currentStats = FirebaseHealthStats(
-        min: min,
-        max: max,
-        avg: points.isEmpty ? 0 : sum / points.length,
-        latest: points.isNotEmpty ? points.last : null,
-      );
 
       if (mounted) {
         setState(() {
-          _dataPoints = points;
-          _stats = currentStats;
+          _currentData = newData;
+          _stats = _calculateStats(newData);
           _isLoading = false;
         });
-        _generateAiSummary();
+        _generateAiSummary(forceRefresh: initialLoad);
       }
-    } catch (e) {
-      print('Error fetching oxygen saturation data: $e');
-      if (mounted) {
-        setState(() => _isLoading = false);
-      }
+    });
+  }
+
+  List<FlSpot> _generateSimulatedData(Duration duration, {required int points, required double baseValue, required double variation}) {
+    final now = DateTime.now();
+    final startTime = now.subtract(duration);
+    final timeStep = duration.inMilliseconds / points;
+
+    return List.generate(points, (i) {
+      final timestamp = startTime.add(Duration(milliseconds: (timeStep * i).toInt()));
+      final value = baseValue + (_random.nextDouble() - 0.5) * variation;
+      return FlSpot(timestamp.millisecondsSinceEpoch.toDouble(), value.clamp(95, 100));
+    });
+  }
+
+  HealthStats _calculateStats(List<FlSpot> data) {
+    if (data.isEmpty) return HealthStats();
+
+    double min = data.first.y, max = data.first.y, sum = 0;
+    for (var spot in data) {
+      sum += spot.y;
+      if (spot.y < min) min = spot.y;
+      if (spot.y > max) max = spot.y;
     }
+    return HealthStats(
+      min: min,
+      max: max,
+      avg: sum / data.length,
+      latest: data.last,
+    );
   }
 
   Future<void> _generateAiSummary({bool forceRefresh = false}) async {
-    if (!forceRefresh && _lastSpo2SummaryTimestamp != null &&
-        DateTime.now().difference(_lastSpo2SummaryTimestamp!) < const Duration(hours: 1)) {
-      if (mounted) setState(() => _aiSummary = _cachedSpo2Summary);
+    if (_currentData.isEmpty) {
+      if (mounted) setState(() => _aiSummary = "Not enough data for a summary.");
       return;
     }
-    if (_dataPoints.isEmpty) {
-      if (mounted) setState(() => _aiSummary = "Not enough data to generate a summary.");
-      return;
-    }
-    if (mounted) setState(() => _aiSummary = "Generating new summary...");
+    if (mounted) setState(() { _aiSummary = "Analyzing your blood oxygen data..."; });
 
-    User? user = FirebaseAuth.instance.currentUser;
-    int? userAge;
-    if (user != null) {
-      try {
-        final doc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
-        if (doc.exists && doc.data()!.containsKey('birthday')) {
-          final birthday = (doc.data()!['birthday'] as Timestamp).toDate();
-          userAge = DateTime.now().year - birthday.year;
-        }
-      } catch (e) {
-        print('Error fetching user age: $e');
-      }
-    }
+    final dataSummaryString = _currentData.map((spot) {
+      final time = DateFormat.Hm().format(DateTime.fromMillisecondsSinceEpoch(spot.x.toInt()));
+      return "${spot.y.toInt()}% at $time";
+    }).take(50).join(', ');
 
-    final dataString = _dataPoints.map((point) =>
-    "${point.value.toInt()}% at ${DateFormat.Hm().format(point.timestamp)}"
-    ).join(', ');
+    const analysisInstructions = """Based on the blood oxygen saturation data (normal: 95-100%), provide:
+        1. **Oxygen Status**: Overall assessment of oxygen saturation levels.
+        2. **Key Observations**: Notable patterns or concerning readings.
+        3. **Health Recommendations**: 2-3 actionable tips for respiratory health.""";
 
     try {
       final summary = await _geminiService.getSummaryFromRawString(
         metricName: "Blood Oxygen (SpO2)",
-        dataSummary: dataString,
-        userAge: userAge,
-        analysisInstructions: """Based on the blood oxygen saturation data (normal: 95-100%), provide:
-        1. **Oxygen Status**: Overall assessment of oxygen saturation levels.
-        2. **Key Observations**: Notable patterns or concerning readings.
-        3. **Health Recommendations**: 2-3 actionable tips for respiratory health.""",
+        dataSummary: dataSummaryString,
+        analysisInstructions: analysisInstructions, userAge: null,
       );
-
-      _cachedSpo2Summary = summary;
-      _lastSpo2SummaryTimestamp = DateTime.now();
       if (mounted) setState(() => _aiSummary = summary);
     } catch (e) {
-      print('Error generating AI summary: $e');
-      if(mounted) setState(() => _aiSummary = "Unable to generate summary at this time.");
+      if(mounted) setState(() => _aiSummary = "Sorry, I couldn't generate a summary right now.");
     }
   }
 
@@ -239,9 +182,7 @@ class _OxygenSaturationScreenState extends State<OxygenSaturationScreen> {
         iconTheme: const IconThemeData(color: AppColors.primaryText),
         centerTitle: false,
       ),
-      body: _isLoading && _dataPoints.isEmpty
-          ? const Center(child: CircularProgressIndicator(color: AppColors.primaryText))
-          : ListView(
+      body: ListView(
         padding: const EdgeInsets.symmetric(horizontal: 16.0),
         children: <Widget>[
           const SizedBox(height: 16),
@@ -279,8 +220,8 @@ class _OxygenSaturationScreenState extends State<OxygenSaturationScreen> {
 
   Widget _buildCurrentSpo2Card() {
     final latestPoint = _stats.latest;
-    final spo2 = latestPoint != null ? latestPoint.value.toStringAsFixed(0) : "--";
-    final time = latestPoint != null ? DateFormat('MMM d, hh:mm a').format(latestPoint.timestamp.toLocal()) : "No recent data";
+    final spo2 = latestPoint != null ? latestPoint.y.toStringAsFixed(0) : "--";
+    final time = latestPoint != null ? DateFormat('MMM d, hh:mm a').format(DateTime.fromMillisecondsSinceEpoch(latestPoint.x.toInt()).toLocal()) : "No recent data";
 
     return _buildInfoCard(
       title: "Latest Reading",
@@ -291,7 +232,7 @@ class _OxygenSaturationScreenState extends State<OxygenSaturationScreen> {
           RichText(
             text: TextSpan(
               text: spo2,
-              style: AppTextStyles.metricValue.copyWith(color: AppColors.oxygenColor),
+              style: AppTextStyles.metricValue.copyWith(color: AppColors.oxygenColor, fontSize: 28),
               children: [TextSpan(text: ' %', style: AppTextStyles.metricUnit)],
             ),
           ),
@@ -312,9 +253,9 @@ class _OxygenSaturationScreenState extends State<OxygenSaturationScreen> {
             height: 200,
             child: _isLoading
                 ? const Center(child: CircularProgressIndicator(color: AppColors.oxygenColor))
-                : _dataPoints.isEmpty
+                : _currentData.isEmpty
                 ? Center(child: Text("No data for this period.", style: AppTextStyles.secondaryInfo))
-                : _buildLineChart(_chartStartTime!),
+                : _buildChart(),
           ),
           const SizedBox(height: 24),
           Row(
@@ -340,6 +281,7 @@ class _OxygenSaturationScreenState extends State<OxygenSaturationScreen> {
               const Icon(Icons.auto_awesome_rounded, color: AppColors.profileColor, size: 24),
               const SizedBox(width: 8),
               Expanded(child: Text("AI Summary", style: AppTextStyles.cardTitle)),
+              if (!_aiSummary.contains("Analyzing"))
               IconButton(
                 icon: const Icon(Icons.refresh, size: 20, color: AppColors.secondaryText),
                 onPressed: () => _generateAiSummary(forceRefresh: true),
@@ -347,35 +289,35 @@ class _OxygenSaturationScreenState extends State<OxygenSaturationScreen> {
               ),
             ],
           ),
-          const SizedBox(height: 12),
-          MarkdownBody(
-            data: _aiSummary,
-            styleSheet: MarkdownStyleSheet.fromTheme(Theme.of(context)).copyWith(
-              p: AppTextStyles.bodyText,
-              listBullet: AppTextStyles.bodyText,
-            ),
-          ),
+          const Divider(height: 24),
+          _aiSummary.contains("Analyzing")
+              ? const Center(child: CircularProgressIndicator(color: AppColors.profileColor))
+              : MarkdownBody(
+                  data: _aiSummary,
+                  styleSheet: MarkdownStyleSheet.fromTheme(Theme.of(context)).copyWith(
+                    p: AppTextStyles.bodyText,
+                    listBullet: AppTextStyles.bodyText,
+                  ),
+                ),
         ],
       ),
     );
   }
 
   Widget _buildSegmentedControl() {
-    final segments = ["1 Hour", "Day", "Week", "Month"];
+    final segments = ["1H", "1D", "1W", "1M"];
     return Row(
       children: List.generate(segments.length, (index) {
         bool isSelected = _selectedSegment == index;
         return Expanded(
           child: GestureDetector(
-            onTap: () {
-              setState(() => _selectedSegment = index);
-              _fetchDataForSegment();
-            },
+            onTap: () => _updateDataForSegment(index),
             child: Container(
               padding: const EdgeInsets.symmetric(vertical: 8),
               decoration: BoxDecoration(
-                color: isSelected ? AppColors.oxygenColor : AppColors.background,
+                color: isSelected ? AppColors.oxygenColor : Colors.transparent,
                 borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: isSelected ? AppColors.oxygenColor : AppColors.secondaryText.withOpacity(0.5))
               ),
               child: Text(
                 segments[index],
@@ -388,38 +330,34 @@ class _OxygenSaturationScreenState extends State<OxygenSaturationScreen> {
             ),
           ),
         );
-      }).expand((widget) => [widget, const SizedBox(width: 4)]).toList()..removeLast(),
+      }).expand((widget) => [widget, const SizedBox(width: 8)]).toList()..removeLast(),
     );
   }
 
   Widget _buildSummaryStatItem(String value, String label) {
     return Column(
       children: [
-        Text(value, style: AppTextStyles.cardTitle),
+        Text(value, style: AppTextStyles.cardTitle.copyWith(fontSize: 18)),
         const SizedBox(height: 4),
         Text(label, style: AppTextStyles.secondaryInfo),
       ],
     );
   }
 
-  Widget _buildLineChart(DateTime startTime) {
-    final spots = _dataPoints.map((point) {
-      final xValue = point.timestamp.millisecondsSinceEpoch.toDouble();
-      return FlSpot(xValue, point.value);
-    }).toList();
+  Widget _buildChart() {
+    if (_currentData.isEmpty) return Container();
 
     return LineChart(
       LineChartData(
         minY: 90,
         maxY: 100,
-        minX: startTime.millisecondsSinceEpoch.toDouble(),
-        maxX: DateTime.now().millisecondsSinceEpoch.toDouble(),
         lineBarsData: [
           LineChartBarData(
-            spots: spots,
+            spots: _currentData,
             isCurved: true,
             color: AppColors.oxygenColor,
-            barWidth: 3,
+            barWidth: 2.5,
+            isStrokeCapRound: true,
             dotData: const FlDotData(show: false),
             belowBarData: BarAreaData(
               show: true,
@@ -435,12 +373,10 @@ class _OxygenSaturationScreenState extends State<OxygenSaturationScreen> {
           leftTitles: AxisTitles(
             sideTitles: SideTitles(
               showTitles: true,
-              reservedSize: 40,
-              interval: 5,
-              getTitlesWidget: (value, meta) => SideTitleWidget(
-                meta: meta,
-                child: Text('${value.toInt()}%', style: AppTextStyles.secondaryInfo),
-              ),
+              reservedSize: 28,
+              interval: 2,
+              getTitlesWidget: (value, meta) {
+                return SideTitleWidget(meta: meta, child: Text(value.toInt().toString(), style: AppTextStyles.secondaryInfo));              },
             ),
           ),
           rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
@@ -449,21 +385,12 @@ class _OxygenSaturationScreenState extends State<OxygenSaturationScreen> {
             sideTitles: SideTitles(
               showTitles: true,
               reservedSize: 30,
+              interval: _getBottomTitleInterval(),
               getTitlesWidget: (value, meta) {
-                final date = DateTime.fromMillisecondsSinceEpoch(value.toInt());
-                String text;
-                if (_selectedSegment == 0) { // 1 hour view
-                  if (date.minute % 15 != 0) return Container(); // Show every 15 minutes
-                  text = DateFormat.Hm().format(date);
-                } else if (_selectedSegment == 1) { // Day view
-                  if (date.hour % 6 != 0) return Container();
-                  text = DateFormat.jm().format(date);
-                } else { // Week/Month view
-                  if (date.weekday != DateTime.monday && _selectedSegment == 2) return Container();
-                  if (date.day % 7 != 1 && _selectedSegment == 3) return Container();
-                  text = DateFormat.Md().format(date);
-                }
-                return SideTitleWidget(meta: meta, child: Text(text, style: AppTextStyles.secondaryInfo.copyWith(fontSize: 10)));
+                return SideTitleWidget(
+                  meta: meta, // Pass the 'meta' object directly
+                  child: Text(_getBottomTitle(value), style: AppTextStyles.secondaryInfo.copyWith(fontSize: 10)),
+                );
               },
             ),
           ),
@@ -471,7 +398,7 @@ class _OxygenSaturationScreenState extends State<OxygenSaturationScreen> {
         gridData: FlGridData(
           show: true,
           drawVerticalLine: false,
-          horizontalInterval: 5,
+          horizontalInterval: 2,
           getDrawingHorizontalLine: (value) => FlLine(color: AppColors.secondaryText.withOpacity(0.1), strokeWidth: 1),
         ),
         borderData: FlBorderData(show: false),
@@ -480,17 +407,15 @@ class _OxygenSaturationScreenState extends State<OxygenSaturationScreen> {
           touchTooltipData: LineTouchTooltipData(
             getTooltipItems: (touchedSpots) {
               return touchedSpots.map((spot) {
-                final date = DateTime.fromMillisecondsSinceEpoch(spot.x.toInt());
                 return LineTooltipItem(
-                  '${spot.y.toStringAsFixed(1)}%\n',
-                  const TextStyle(color: AppColors.oxygenColor, fontWeight: FontWeight.bold),
+                  '${spot.y.toStringAsFixed(1)}%',
+                  AppTextStyles.buttonText.copyWith(color: Colors.white),
                   children: [
                     TextSpan(
-                      text: DateFormat('MMM d, hh:mm a').format(date),
-                      style: const TextStyle(fontWeight: FontWeight.normal, color: Colors.white, fontSize: 12),
+                      text: DateFormat('MMM d, hh:mm a').format(DateTime.fromMillisecondsSinceEpoch(spot.x.toInt())),
+                      style: AppTextStyles.secondaryInfo.copyWith(color: Colors.white, fontSize: 12),
                     ),
                   ],
-                  textAlign: TextAlign.center,
                 );
               }).toList();
             },
@@ -498,5 +423,26 @@ class _OxygenSaturationScreenState extends State<OxygenSaturationScreen> {
         ),
       ),
     );
+  }
+
+  double _getBottomTitleInterval() {
+    switch (_selectedSegment) {
+      case 0: return const Duration(minutes: 15).inMilliseconds.toDouble();
+      case 1: return const Duration(hours: 6).inMilliseconds.toDouble();
+      case 2: return const Duration(days: 2).inMilliseconds.toDouble();
+      case 3: return const Duration(days: 7).inMilliseconds.toDouble();
+      default: return const Duration(hours: 1).inMilliseconds.toDouble();
+    }
+  }
+
+  String _getBottomTitle(double value) {
+    final date = DateTime.fromMillisecondsSinceEpoch(value.toInt());
+    switch (_selectedSegment) {
+      case 0: return DateFormat.Hm().format(date);
+      case 1: return DateFormat.jm().format(date);
+      case 2: return DateFormat.E().format(date);
+      case 3: return DateFormat.Md().format(date);
+      default: return '';
+    }
   }
 }

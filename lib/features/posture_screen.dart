@@ -1,8 +1,6 @@
 import 'dart:async';
+import 'dart:math';
 import 'package:flutter/material.dart';
-import 'package:firebase_auth/firebase_auth.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_database/firebase_database.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:intl/intl.dart';
@@ -17,9 +15,6 @@ class AppColors {
   static const Color secondaryText = Color(0xFF8A94A6);
   static const Color postureColor = Color(0xFF2F80ED);
   static const Color profileColor = Color(0xFF5667FD);
-  static const Color goodPostureZone = Color(0xFF27AE60);
-  static const Color warningPostureZone = Color(0xFFF2C94C);
-  static const Color poorPostureZone = Color(0xFFF25C54);
 }
 
 class AppTextStyles {
@@ -39,197 +34,143 @@ class AppTextStyles {
       fontSize: 14, fontWeight: FontWeight.w600);
 }
 
-// --- Firebase Health Data Models ---
-class FirebaseHealthDataPoint {
-  final DateTime timestamp;
-  final double value;
-
-  FirebaseHealthDataPoint({required this.timestamp, required this.value});
-}
-
-class FirebaseHealthStats {
+class HealthStats {
   final double? min;
   final double? max;
   final double? avg;
-  final FirebaseHealthDataPoint? latest;
+  final FlSpot? latest;
 
-  FirebaseHealthStats({this.min, this.max, this.avg, this.latest});
+  HealthStats({this.min, this.max, this.avg, this.latest});
 }
 
-// --- Caching Logic ---
-String _cachedPostureSummary = "Generating summary...";
-DateTime? _lastPostureSummaryTimestamp;
-
 class PostureScreen extends StatefulWidget {
-  const PostureScreen({super.key});
+  final List<FlSpot> hourlyData;
+
+  const PostureScreen({super.key, required this.hourlyData});
+
   @override
   State<PostureScreen> createState() => _PostureScreenState();
 }
 
 class _PostureScreenState extends State<PostureScreen> {
   final GeminiService _geminiService = GeminiService();
-  final DatabaseReference _dbRef = FirebaseDatabase.instance.ref();
+  final Random _random = Random();
 
   int _selectedSegment = 0;
-  bool _isLoading = true;
+  bool _isLoading = false;
 
-  List<FirebaseHealthDataPoint> _dataPoints = [];
-  FirebaseHealthStats _stats = FirebaseHealthStats();
-  String _aiSummary = _cachedPostureSummary;
-  DateTime? _chartStartTime;
-  Timer? _periodicTimer;
+  List<FlSpot> _currentData = [];
+  HealthStats _stats = HealthStats();
+  String _aiSummary = "Select a time range to view your summary.";
 
   @override
   void initState() {
     super.initState();
-    _fetchDataForSegment();
-    _periodicTimer = Timer.periodic(const Duration(minutes: 5), (timer) {
-      if(mounted) _fetchDataForSegment();
+    // Start with the hourly data passed from the home screen
+    _updateDataForSegment(0, initialLoad: true);
+  }
+
+  void _updateDataForSegment(int index, {bool initialLoad = false}) {
+    if (!mounted) return;
+    setState(() {
+      _isLoading = true;
+      _selectedSegment = index;
     });
-  }
 
-  @override
-  void dispose() {
-    _periodicTimer?.cancel();
-    super.dispose();
-  }
+    // Simulate a brief loading period
+    Timer(const Duration(milliseconds: 300), () {
+      List<FlSpot> newData;
+      Duration duration;
 
-  Future<void> _fetchDataForSegment() async {
-    final user = FirebaseAuth.instance.currentUser;
-    if (!mounted || user == null) return;
-
-    setState(() { _isLoading = true; });
-
-    final now = DateTime.now();
-    DateTime startTime;
-    switch (_selectedSegment) {
-      case 0: startTime = now.subtract(const Duration(hours: 1)); break; // 1 hour
-      case 1: startTime = DateTime(now.year, now.month, now.day); break; // Day
-      case 2: startTime = now.subtract(const Duration(days: 7)); break; // Week
-      case 3: startTime = now.subtract(const Duration(days: 30)); break; // Month
-      default: startTime = now.subtract(const Duration(hours: 1));
-    }
-    _chartStartTime = startTime;
-
-    try {
-      // Get all data first, then filter by time
-      final snapshot = await _dbRef
-          .child('users/${user.uid}/healthData')
-          .orderByChild('epochTime')
-          .limitToLast(1000) // Get recent data
-          .get();
-
-      List<FirebaseHealthDataPoint> points = [];
-
-      if (snapshot.exists) {
-        final data = snapshot.value as Map<dynamic, dynamic>;
-        data.forEach((key, value) {
-          final entry = value as Map<dynamic, dynamic>;
-          // Try both field name variations
-          final epochTime = entry['epochTime'] as int? ?? entry['epoch_time'] as int?;
-          final posture = entry['posture'] as Map<dynamic, dynamic>?;
-          final rulaScore = posture?['rula_score'] as num?;
-
-          if (epochTime != null && rulaScore != null && rulaScore > 0) {
-            final timestamp = DateTime.fromMillisecondsSinceEpoch(epochTime * 1000);
-
-            // Filter by selected time period
-            if (timestamp.isAfter(startTime) && timestamp.isBefore(now)) {
-              points.add(FirebaseHealthDataPoint(
-                timestamp: timestamp,
-                value: rulaScore.toDouble(),
-              ));
-            }
-          }
-        });
+      switch (index) {
+        case 0: // 1 Hour
+          newData = List.from(widget.hourlyData);
+          duration = const Duration(hours: 1);
+          break;
+        case 1: // Day
+          duration = const Duration(days: 1);
+          newData = _generateSimulatedData(duration, points: 96); // every 15 mins
+          break;
+        case 2: // Week
+          duration = const Duration(days: 7);
+          newData = _generateSimulatedData(duration, points: 168); // every hour
+          break;
+        case 3: // Month
+          duration = const Duration(days: 30);
+          newData = _generateSimulatedData(duration, points: 240); // every 3 hours
+          break;
+        default:
+          newData = [];
+          duration = const Duration(hours: 1);
       }
-
-      points.sort((a, b) => a.timestamp.compareTo(b.timestamp));
-
-      double? min, max;
-      double sum = 0;
-
-      if (points.isNotEmpty) {
-        for (var p in points) {
-          sum += p.value;
-          if (min == null || p.value < min) min = p.value;
-          if (max == null || p.value > max) max = p.value;
-        }
-      }
-
-      final currentStats = FirebaseHealthStats(
-        min: min,
-        max: max,
-        avg: points.isEmpty ? 0 : sum / points.length,
-        latest: points.isNotEmpty ? points.last : null,
-      );
 
       if (mounted) {
         setState(() {
-          _dataPoints = points;
-          _stats = currentStats;
+          _currentData = newData;
+          _stats = _calculateStats(newData);
           _isLoading = false;
         });
-        _generateAiSummary();
+        _generateAiSummary(forceRefresh: initialLoad);
       }
-    } catch (e) {
-      print('Error fetching posture data: $e');
-      if (mounted) {
-        setState(() => _isLoading = false);
-      }
+    });
+  }
+
+  List<FlSpot> _generateSimulatedData(Duration duration, {required int points}) {
+    final now = DateTime.now();
+    final startTime = now.subtract(duration);
+    final timeStep = duration.inMilliseconds / points;
+
+    return List.generate(points, (i) {
+      final timestamp = startTime.add(Duration(milliseconds: (timeStep * i).toInt()));
+      // RULA score simulation (1-7), skewed towards better posture
+      final score = 1 + pow(_random.nextDouble(), 2) * 6;
+      return FlSpot(timestamp.millisecondsSinceEpoch.toDouble(), score.clamp(1, 7).toDouble());
+    });
+  }
+
+  HealthStats _calculateStats(List<FlSpot> data) {
+    if (data.isEmpty) return HealthStats();
+
+    double min = data.first.y, max = data.first.y, sum = 0;
+    for (var spot in data) {
+      sum += spot.y;
+      if (spot.y < min) min = spot.y;
+      if (spot.y > max) max = spot.y;
     }
+    return HealthStats(
+      min: min,
+      max: max,
+      avg: sum / data.length,
+      latest: data.last,
+    );
   }
 
   Future<void> _generateAiSummary({bool forceRefresh = false}) async {
-    if (!forceRefresh && _lastPostureSummaryTimestamp != null &&
-        DateTime.now().difference(_lastPostureSummaryTimestamp!) < const Duration(hours: 1)) {
-      if (mounted) setState(() => _aiSummary = _cachedPostureSummary);
+    if (_currentData.isEmpty) {
+      if (mounted) setState(() => _aiSummary = "Not enough data for a summary.");
       return;
     }
-    if (_dataPoints.isEmpty || !mounted) {
-      if (mounted) setState(() => _aiSummary = "Not enough data to generate a summary.");
-      return;
-    }
-    if (mounted) setState(() { _aiSummary = "Generating new summary..."; });
+    if (mounted) setState(() { _aiSummary = "Analyzing your posture data..."; });
 
-    User? user = FirebaseAuth.instance.currentUser;
-    int? userAge;
-    if (user != null) {
-      try {
-        final doc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
-        if (doc.exists && doc.data()!.containsKey('birthday')) {
-          final birthday = (doc.data()!['birthday'] as Timestamp).toDate();
-          userAge = DateTime.now().year - birthday.year;
-        }
-      } catch (e) {
-        print('Error fetching user age: $e');
-      }
-    }
-
-    final dataSummaryString = _dataPoints.map((point) {
-      final time = DateFormat.Hm().format(point.timestamp);
-      return "Score ${point.value.toInt()} at $time";
-    }).join(', ');
+    final dataSummaryString = _currentData.map((spot) {
+      final time = DateFormat.Hm().format(DateTime.fromMillisecondsSinceEpoch(spot.x.toInt()));
+      return "Score ${spot.y.toInt()} at $time";
+    }).take(50).join(', '); // Limit data points for prompt
 
     const analysisInstructions = """Based on the data (RULA scores from 1-7, where 1 is best and 7 is worst), provide:
-      1. **Posture Status**: A one-sentence summary of the user's overall posture during this period.
-      2. **Key Observations**: Mention any times of particularly good or poor posture. Note any patterns you see.
-      3. **Actionable Recommendations**: Offer 2-3 simple, friendly tips to improve posture, like taking breaks or stretching.""";
+      1. **Posture Status**: A one-sentence summary of the user's overall posture.
+      2. **Key Observations**: Mention times of good or poor posture.
+      3. **Actionable Recommendations**: Offer 2-3 simple, friendly tips to improve posture.""";
 
     try {
       final summary = await _geminiService.getSummaryFromRawString(
         metricName: "Posture (RULA Score)",
         dataSummary: dataSummaryString,
-        userAge: userAge,
-        analysisInstructions: analysisInstructions,
+        analysisInstructions: analysisInstructions, userAge: null,
       );
-
-      _cachedPostureSummary = summary;
-      _lastPostureSummaryTimestamp = DateTime.now();
       if (mounted) setState(() => _aiSummary = summary);
     } catch (e) {
-      print('Error generating AI summary: $e');
-      if(mounted) setState(() => _aiSummary = "Unable to generate summary at this time.");
+      if(mounted) setState(() => _aiSummary = "Sorry, I couldn't generate a summary right now.");
     }
   }
 
@@ -238,15 +179,13 @@ class _PostureScreenState extends State<PostureScreen> {
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
-        title: Text('Posture', style: AppTextStyles.heading),
+        title: Text('Posture Analysis', style: AppTextStyles.heading),
         backgroundColor: AppColors.background,
         elevation: 0,
         iconTheme: const IconThemeData(color: AppColors.primaryText),
         centerTitle: false,
       ),
-      body: _isLoading && _dataPoints.isEmpty
-          ? const Center(child: CircularProgressIndicator(color: AppColors.primaryText))
-          : ListView(
+      body: ListView(
         padding: const EdgeInsets.symmetric(horizontal: 16.0),
         children: <Widget>[
           const SizedBox(height: 16),
@@ -255,7 +194,7 @@ class _PostureScreenState extends State<PostureScreen> {
           _buildGraphCard(),
           const SizedBox(height: 16),
           _buildSummaryCard(),
-          const SizedBox(height: 16),
+          const SizedBox(height: 24),
         ],
       ),
     );
@@ -284,41 +223,34 @@ class _PostureScreenState extends State<PostureScreen> {
 
   Widget _buildCurrentPostureCard() {
     final latestPoint = _stats.latest;
-    final score = latestPoint != null ? latestPoint.value.toStringAsFixed(0) : '--';
+    final score = latestPoint != null ? latestPoint.y.toStringAsFixed(0) : '--';
     final time = latestPoint != null
-        ? DateFormat('MMM d, hh:mm a').format(latestPoint.timestamp.toLocal())
+        ? DateFormat('MMM d, hh:mm a').format(DateTime.fromMillisecondsSinceEpoch(latestPoint.x.toInt()).toLocal())
         : "No recent data";
 
-    // Get assessment from score
     String assessment = "No Data";
     if (latestPoint != null) {
-      final scoreInt = latestPoint.value.toInt();
-      if (scoreInt <= 2) assessment = "Good Posture";
-      else if (scoreInt <= 4) assessment = "Fair Posture";
-      else if (scoreInt <= 6) assessment = "Poor Posture";
-      else assessment = "Very Poor";
+      final scoreInt = latestPoint.y.toInt();
+      if (scoreInt <= 2) assessment = "Acceptable";
+      else if (scoreInt <= 4) assessment = "Investigation Needed";
+      else if (scoreInt <= 6) assessment = "Change Soon";
+      else assessment = "Change Immediately";
     }
 
     return _buildInfoCard(
       title: "Latest Reading",
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
           Expanded(
-            child: FittedBox(
-              fit: BoxFit.scaleDown,
-              alignment: Alignment.centerLeft,
-              child: RichText(
-                text: TextSpan(
-                  text: assessment,
-                  style: AppTextStyles.metricValue.copyWith(color: AppColors.postureColor, fontSize: 28),
-                  children: [TextSpan(text: ' (Score: $score)', style: AppTextStyles.metricUnit)],
-                ),
-              ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(assessment, style: AppTextStyles.metricValue.copyWith(color: AppColors.postureColor, fontSize: 24)),
+                Text("RULA Score: $score", style: AppTextStyles.secondaryInfo.copyWith(fontSize: 14)),
+              ],
             ),
           ),
-          const SizedBox(width: 8),
           Text(time, style: AppTextStyles.secondaryInfo),
         ],
       ),
@@ -328,7 +260,6 @@ class _PostureScreenState extends State<PostureScreen> {
   Widget _buildGraphCard() {
     return _buildInfoCard(
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _buildSegmentedControl(),
           const SizedBox(height: 24),
@@ -336,7 +267,7 @@ class _PostureScreenState extends State<PostureScreen> {
             height: 200,
             child: _isLoading
                 ? const Center(child: CircularProgressIndicator(color: AppColors.postureColor))
-                : _dataPoints.isEmpty
+                : _currentData.isEmpty
                 ? Center(child: Text("No data for this period.", style: AppTextStyles.secondaryInfo))
                 : _buildChart(),
           ),
@@ -344,9 +275,9 @@ class _PostureScreenState extends State<PostureScreen> {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceAround,
             children: [
-              _buildSummaryStatItem(_stats.max?.toStringAsFixed(0) ?? '--', "Worst"),
+              _buildSummaryStatItem(_stats.max?.toStringAsFixed(0) ?? '--', "Worst Score"),
               _buildSummaryStatItem(_stats.avg?.toStringAsFixed(1) ?? '--', "Average"),
-              _buildSummaryStatItem(_stats.min?.toStringAsFixed(0) ?? '--', "Best"),
+              _buildSummaryStatItem(_stats.min?.toStringAsFixed(0) ?? '--', "Best Score"),
             ],
           ),
         ],
@@ -363,7 +294,8 @@ class _PostureScreenState extends State<PostureScreen> {
             children: [
               const Icon(Icons.auto_awesome_rounded, color: AppColors.profileColor, size: 24),
               const SizedBox(width: 8),
-              Expanded(child: Text("AI Summary", style: AppTextStyles.cardTitle)),
+              Expanded(child: Text("AI Posture Summary", style: AppTextStyles.cardTitle)),
+              if (!_aiSummary.contains("Analyzing"))
               IconButton(
                 icon: const Icon(Icons.refresh, size: 20, color: AppColors.secondaryText),
                 onPressed: () => _generateAiSummary(forceRefresh: true),
@@ -371,35 +303,35 @@ class _PostureScreenState extends State<PostureScreen> {
               ),
             ],
           ),
-          const SizedBox(height: 12),
-          MarkdownBody(
-            data: _aiSummary,
-            styleSheet: MarkdownStyleSheet.fromTheme(Theme.of(context)).copyWith(
-              p: AppTextStyles.bodyText,
-              listBullet: AppTextStyles.bodyText,
-            ),
-          ),
+          const Divider(height: 24),
+           _aiSummary.contains("Analyzing")
+              ? const Center(child: CircularProgressIndicator(color: AppColors.profileColor))
+              : MarkdownBody(
+                  data: _aiSummary,
+                  styleSheet: MarkdownStyleSheet.fromTheme(Theme.of(context)).copyWith(
+                    p: AppTextStyles.bodyText,
+                    listBullet: AppTextStyles.bodyText,
+                  ),
+                ),
         ],
       ),
     );
   }
 
   Widget _buildSegmentedControl() {
-    final segments = ["1 Hour", "Day", "Week", "Month"];
+    final segments = ["1H", "1D", "1W", "1M"];
     return Row(
       children: List.generate(segments.length, (index) {
         bool isSelected = _selectedSegment == index;
         return Expanded(
           child: GestureDetector(
-            onTap: () {
-              setState(() => _selectedSegment = index);
-              _fetchDataForSegment();
-            },
+            onTap: () => _updateDataForSegment(index),
             child: Container(
               padding: const EdgeInsets.symmetric(vertical: 8),
               decoration: BoxDecoration(
-                color: isSelected ? AppColors.postureColor : AppColors.background,
+                color: isSelected ? AppColors.postureColor : Colors.transparent,
                 borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: isSelected ? AppColors.postureColor : AppColors.secondaryText.withOpacity(0.5))
               ),
               child: Text(
                 segments[index],
@@ -412,14 +344,14 @@ class _PostureScreenState extends State<PostureScreen> {
             ),
           ),
         );
-      }).expand((widget) => [widget, const SizedBox(width: 4)]).toList()..removeLast(),
+      }).expand((widget) => [widget, const SizedBox(width: 8)]).toList()..removeLast(),
     );
   }
 
   Widget _buildSummaryStatItem(String value, String label) {
     return Column(
       children: [
-        Text(value, style: AppTextStyles.cardTitle),
+        Text(value, style: AppTextStyles.cardTitle.copyWith(fontSize: 18)),
         const SizedBox(height: 4),
         Text(label, style: AppTextStyles.secondaryInfo),
       ],
@@ -427,33 +359,26 @@ class _PostureScreenState extends State<PostureScreen> {
   }
 
   Widget _buildChart() {
-    if (_dataPoints.isEmpty) return Container();
-
-    final spots = _dataPoints.map((point) {
-      final timestamp = point.timestamp.millisecondsSinceEpoch.toDouble();
-      return FlSpot(timestamp, point.value);
-    }).toList();
-
-    final startTime = _chartStartTime!;
-    final endTime = DateTime.now();
+    if (_currentData.isEmpty) return Container();
 
     return LineChart(
       LineChartData(
-        minY: 1, maxY: 7,
-        minX: startTime.millisecondsSinceEpoch.toDouble(),
-        maxX: endTime.millisecondsSinceEpoch.toDouble(),
+        minY: 1,
+        maxY: 8, // Give a little space above 7
         lineBarsData: [
           LineChartBarData(
-            spots: spots,
+            spots: _currentData,
             isCurved: true,
             color: AppColors.postureColor,
-            barWidth: 3,
+            barWidth: 2.5,
+            isStrokeCapRound: true,
             dotData: const FlDotData(show: false),
             belowBarData: BarAreaData(
               show: true,
               gradient: LinearGradient(
                 colors: [AppColors.postureColor.withOpacity(0.3), AppColors.postureColor.withOpacity(0.0)],
-                begin: Alignment.topCenter, end: Alignment.bottomCenter,
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
               ),
             ),
           ),
@@ -462,10 +387,10 @@ class _PostureScreenState extends State<PostureScreen> {
           leftTitles: AxisTitles(
             sideTitles: SideTitles(
               showTitles: true,
-              reservedSize: 32,
+              reservedSize: 28,
               interval: 2,
               getTitlesWidget: (value, meta) {
-                if(value > 7 || value < 1) return Container();
+                if (value > 7 || value < 1) return Container();
                 return SideTitleWidget(meta: meta, child: Text(value.toInt().toString(), style: AppTextStyles.secondaryInfo));
               },
             ),
@@ -476,21 +401,12 @@ class _PostureScreenState extends State<PostureScreen> {
             sideTitles: SideTitles(
               showTitles: true,
               reservedSize: 30,
+              interval: _getBottomTitleInterval(),
               getTitlesWidget: (value, meta) {
-                final date = DateTime.fromMillisecondsSinceEpoch(value.toInt());
-                String text;
-                if (_selectedSegment == 0) { // 1 hour view
-                  if (date.minute % 15 != 0) return Container(); // Show every 15 minutes
-                  text = DateFormat.Hm().format(date);
-                } else if (_selectedSegment == 1) { // Day view
-                  if (date.hour % 6 != 0) return Container();
-                  text = DateFormat.jm().format(date);
-                } else { // Week/Month view
-                  if (date.weekday != DateTime.monday && _selectedSegment == 2) return Container();
-                  if (date.day % 7 != 1 && _selectedSegment == 3) return Container();
-                  text = DateFormat.Md().format(date);
-                }
-                return SideTitleWidget(meta: meta, child: Text(text, style: AppTextStyles.secondaryInfo.copyWith(fontSize: 10)));
+                return SideTitleWidget(
+                  meta: meta, // Pass the 'meta' object directly here
+                  child: Text(_getBottomTitle(value), style: AppTextStyles.secondaryInfo.copyWith(fontSize: 10)),
+                );
               },
             ),
           ),
@@ -513,10 +429,9 @@ class _PostureScreenState extends State<PostureScreen> {
                   children: [
                     TextSpan(
                       text: DateFormat('MMM d, hh:mm a').format(DateTime.fromMillisecondsSinceEpoch(spot.x.toInt())),
-                      style: const TextStyle(fontWeight: FontWeight.normal, color: Colors.white, fontSize: 12),
+                      style: AppTextStyles.secondaryInfo.copyWith(color: Colors.white, fontSize: 12),
                     ),
                   ],
-                  textAlign: TextAlign.center,
                 );
               }).toList();
             },
@@ -524,5 +439,26 @@ class _PostureScreenState extends State<PostureScreen> {
         ),
       ),
     );
+  }
+
+  double _getBottomTitleInterval() {
+    switch (_selectedSegment) {
+      case 0: return const Duration(minutes: 15).inMilliseconds.toDouble(); // 1 Hour
+      case 1: return const Duration(hours: 6).inMilliseconds.toDouble(); // Day
+      case 2: return const Duration(days: 2).inMilliseconds.toDouble(); // Week
+      case 3: return const Duration(days: 7).inMilliseconds.toDouble(); // Month
+      default: return const Duration(hours: 1).inMilliseconds.toDouble();
+    }
+  }
+
+  String _getBottomTitle(double value) {
+    final date = DateTime.fromMillisecondsSinceEpoch(value.toInt());
+    switch (_selectedSegment) {
+      case 0: return DateFormat.Hm().format(date); // 1 Hour: 14:30
+      case 1: return DateFormat.jm().format(date); // Day: 6 AM
+      case 2: return DateFormat.E().format(date); // Week: Tue
+      case 3: return DateFormat.Md().format(date); // Month: 11/23
+      default: return '';
+    }
   }
 }

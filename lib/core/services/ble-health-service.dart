@@ -6,16 +6,21 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:smartvest/core/services/mqtt_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter/widgets.dart';
+import 'package:smartvest/core/services/notification_service.dart';
 
-class BleHealthService {
+class BleHealthService with WidgetsBindingObserver {
   static final BleHealthService _instance = BleHealthService._internal();
   factory BleHealthService() => _instance;
-  BleHealthService._internal();
+  BleHealthService._internal() {
+    WidgetsBinding.instance.addObserver(this);
+  }
 
   StreamSubscription<List<int>>? _healthDataSubscription;
   BluetoothDevice? _connectedDevice;
   String? _deviceId;
   final MqttService _mqttService = MqttService();
+  final NotificationService _notificationService = NotificationService();
 
   // Statistics
   int _dataPacketsReceived = 0;
@@ -31,6 +36,8 @@ class BleHealthService {
   // Keep alive timer to maintain connection
   Timer? _keepAliveTimer;
   Timer? _statsTimer;
+  Timer? _disconnectTimer; // New timer for disconnection notification
+  AppLifecycleState? _appLifecycleState; // To track app state
 
   Stream<Map<String, dynamic>> get statusStream => _statusController.stream;
   bool get isConnected => _connectedDevice != null && _healthDataSubscription != null;
@@ -86,7 +93,7 @@ class BleHealthService {
             _healthDataSubscription = null;
             _attemptReconnection();
           }
-      );
+      ) as StreamSubscription<List<int>>?;
 
       // Start keep-alive and stats timers
       _startKeepAliveTimer();
@@ -148,6 +155,7 @@ class BleHealthService {
         if (service.uuid == Guid("12345678-1234-1234-1234-123456789abc")) {
           for (final char in service.characteristics) {
             if (char.uuid == Guid("87654321-4321-4321-4321-cba987654321")) {
+              _disconnectTimer?.cancel(); // Cancel timer on successful reconnection
               await startHealthDataMonitoring(_connectedDevice!, _deviceId!, char);
               return;
             }
@@ -336,15 +344,34 @@ class BleHealthService {
     }
   }
 
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    _appLifecycleState = state;
+    debugPrint('BLE_HEALTH_SERVICE:: App lifecycle state changed: $state');
+    if (state == AppLifecycleState.paused) {
+      // App is going to the background
+      if (!isConnected) {
+        _startDisconnectNotificationTimer();
+      }
+    } else if (state == AppLifecycleState.resumed) {
+      // App is coming to the foreground
+      _disconnectTimer?.cancel();
+    }
+  }
+
   Future<void> stopHealthDataMonitoring() async {
     _keepAliveTimer?.cancel();
     _statsTimer?.cancel();
+    _disconnectTimer?.cancel(); // Ensure timer is cancelled on explicit stop
 
     if (_healthDataSubscription != null) {
-      await _healthDataSubscription!.cancel();
+      _healthDataSubscription!.cancel();
       _healthDataSubscription = null;
       debugPrint('BLE_HEALTH_SERVICE:: Stopped health data monitoring');
       _updateStatus('disconnected', 'Health data monitoring stopped');
+      if (_appLifecycleState == AppLifecycleState.paused) {
+        _startDisconnectNotificationTimer();
+      }
     }
 
     if (_connectedDevice != null) {
@@ -357,6 +384,20 @@ class BleHealthService {
     }
 
     _deviceId = null;
+  }
+
+  void _startDisconnectNotificationTimer() {
+    _disconnectTimer?.cancel(); // Cancel any existing timer
+    _disconnectTimer = Timer(const Duration(seconds: 30), () {
+      if (!isConnected && _appLifecycleState == AppLifecycleState.paused) {
+        _notificationService.showHighPriorityAlert(
+          id: 0, // Unique ID for this notification
+          title: 'Smart Vest Disconnected',
+          body: 'Your Smart Vest has been disconnected for a while. Please check your connection.',
+        );
+        debugPrint('BLE_HEALTH_SERVICE:: Disconnection notification sent.');
+      }
+    });
   }
 
   /// Clear all stored data
@@ -378,5 +419,6 @@ class BleHealthService {
   void dispose() {
     stopHealthDataMonitoring();
     _statusController.close();
+    WidgetsBinding.instance.removeObserver(this);
   }
 }
